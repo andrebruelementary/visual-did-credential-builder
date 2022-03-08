@@ -89,15 +89,15 @@ public class DIDDataModelTreeLabelProvider implements ILabelProvider {
 		if(element.getClass() == PrismKeyTreeObject.class) {
 			PrismKeyTreeObject to = (PrismKeyTreeObject) element;
 			if(to.getType() == TYPE_MASTER_KEY) {
-				System.out.println("get master image");
+				//System.out.println("get master image");
 				return ir.get(PrismImageRegistry.MASTER_KEY);
 			}
 			else if(to.getType() == TYPE_ISSUING_KEY) {
-				System.out.println("get issuing image");
+				//System.out.println("get issuing image");
 				return ir.get(PrismImageRegistry.ISSUING_KEY);
 			}
 			else if(to.getType() == TYPE_REVOCATION_KEY) {
-				System.out.println("get revocation key image");
+				//System.out.println("get revocation key image");
 				return ir.get(PrismImageRegistry.REVOCATION_KEY);
 			}
 		}
@@ -112,14 +112,14 @@ public class DIDDataModelTreeLabelProvider implements ILabelProvider {
 			}
 		}
 		else {
-			System.out.println(element.getClass().toString());
+			System.out.println("DIDDataModelTreeLabelProvider: No image configured for class "+ element.getClass().toString());
 		}
 		return null;
 	}
 
 	@Override
 	public String getText(Object element) {
-		System.out.println("getText "+ element.getClass().toString());
+		//System.out.println("getText "+ element.getClass().toString());
 		
 		if(element.getClass() == PrismKeyTreeObject.class) {
 			PrismKeyTreeObject to = (PrismKeyTreeObject) element;
@@ -131,7 +131,7 @@ public class DIDDataModelTreeLabelProvider implements ILabelProvider {
 			return to.getText();
 		}
 		else {
-			System.out.println(element.getClass().toString());
+			System.out.println("DIDDataModelTreeLabelProvider: No text configured for class "+ element.getClass().toString());
 		}
 		
 		return element.toString();

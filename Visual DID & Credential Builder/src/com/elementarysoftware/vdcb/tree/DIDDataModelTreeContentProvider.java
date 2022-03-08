@@ -21,7 +21,7 @@ public class DIDDataModelTreeContentProvider implements ITreeContentProvider {
 
 	@Override
 	public Object[] getElements(Object inputElement) {
-		System.out.println("getElements");
+		//System.out.println("getElements");
 		//return did.getDataModel().getPublicKeys();
 		List<Object> elements = new Vector<Object>();
 		PrismKeyInformation[] keys = did.getDataModel().getPublicKeys();
@@ -36,7 +36,7 @@ public class DIDDataModelTreeContentProvider implements ITreeContentProvider {
 
 	@Override
 	public Object[] getChildren(Object parentElement) {
-		System.out.println("getChildren");
+		//System.out.println("getChildren");
 		List<Object> children = new Vector<Object>();
 		
 		if(parentElement.getClass() == PrismKeyTreeObject.class) {
@@ -62,20 +62,20 @@ public class DIDDataModelTreeContentProvider implements ITreeContentProvider {
 			
 		}*/
 		else {
-			System.out.println(parentElement.getClass().toString());
+			System.out.println("DIDDataModelTreeContentProvider: No getChildren() configured for class "+ parentElement.getClass().toString());
 		}
 		return children.toArray();
 	}
 
 	@Override
 	public Object getParent(Object element) {
-		System.out.println("getParent");
-		System.out.println(element.getClass().toString());
+		//System.out.println("getParent");
+		//System.out.println(element.getClass().toString());
 		if(element.getClass() == PrismKeyInformation.class) {
 			return did;
 		}
 		else {
-			
+			System.out.println("DIDDataModelTreeContentProvider: No getParent() configured for class "+ element.getClass().toString());
 		}
 		
 		return null; 
@@ -83,7 +83,7 @@ public class DIDDataModelTreeContentProvider implements ITreeContentProvider {
 
 	@Override
 	public boolean hasChildren(Object element) {
-		System.out.println("hasChildren");
+		//System.out.println("hasChildren");
 		Object[] obj = getChildren(element);
 		return obj == null ? false : obj.length > 0;
 	}
