@@ -13,14 +13,14 @@ import org.w3c.dom.Document;
 public class FileOperations {
 
 	// write doc to output stream
-    public static void writeXml(Document doc, OutputStream output) throws TransformerException {
+	public static void writeXml(Document doc, OutputStream output) throws TransformerException {
 
-        TransformerFactory transformerFactory = TransformerFactory.newInstance();
-        Transformer transformer = transformerFactory.newTransformer();
-        DOMSource source = new DOMSource(doc);
-        StreamResult result = new StreamResult(output);
+		TransformerFactory transformerFactory = TransformerFactory.newInstance();
+		Transformer transformer = transformerFactory.newTransformer();
+		DOMSource source = new DOMSource(doc);
+		StreamResult result = new StreamResult(output);
 
-        transformer.transform(source, result);
+		transformer.transform(source, result);
 
-    }
+	}
 }

@@ -8,10 +8,9 @@ import org.eclipse.jface.viewers.ITreeContentProvider;
 import com.elementarysoftware.prism.DID;
 
 import io.iohk.atala.prism.identity.PrismKeyInformation;
-import io.iohk.atala.prism.protos.models.LedgerData;
 
 public class DIDDataModelTreeContentProvider implements ITreeContentProvider {
-	
+
 	//private PrismDidDataModel model;
 	private DID did;
 
@@ -25,20 +24,20 @@ public class DIDDataModelTreeContentProvider implements ITreeContentProvider {
 		//return did.getDataModel().getPublicKeys();
 		List<Object> elements = new Vector<Object>();
 		PrismKeyInformation[] keys = did.getDataModel().getPublicKeys();
-		
+
 		for(int i = 0; i < keys.length; i++) {
 			elements.add(new PrismKeyTreeObject(keys[i]));
 		}
-		
+
 		return elements.toArray();
-		
+
 	}
 
 	@Override
 	public Object[] getChildren(Object parentElement) {
 		//System.out.println("getChildren");
 		List<Object> children = new Vector<Object>();
-		
+
 		if(parentElement.getClass() == PrismKeyTreeObject.class) {
 			children = new Vector<Object>();
 			PrismKeyTreeObject to = ((PrismKeyTreeObject) parentElement);
@@ -52,14 +51,14 @@ public class DIDDataModelTreeContentProvider implements ITreeContentProvider {
 		}
 		/*else if(parentElement.getClass() == LedgerData.class) {
 			LedgerData ldata = ((LedgerData) parentElement);
-			
+
 			System.out.println("ledger:"+ ldata.getLedger());
 			System.out.println("transaction id:"+ ldata.getTransactionId());
 			System.out.println("timestamp:"+ ldata.getTimestampInfo().toString());
-			
+
 			return ir.get(PrismImageRegistry.ADDED_DATE);
-			
-			
+
+
 		}*/
 		else {
 			System.out.println("DIDDataModelTreeContentProvider: No getChildren() configured for class "+ parentElement.getClass().toString());
@@ -77,7 +76,7 @@ public class DIDDataModelTreeContentProvider implements ITreeContentProvider {
 		else {
 			System.out.println("DIDDataModelTreeContentProvider: No getParent() configured for class "+ element.getClass().toString());
 		}
-		
+
 		return null; 
 	}
 

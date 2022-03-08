@@ -4,14 +4,10 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Vector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import org.eclipse.swt.SWT;
-import org.eclipse.swt.widgets.MessageBox;
 
 import io.iohk.atala.prism.api.KeyGenerator;
 import io.iohk.atala.prism.crypto.derivation.KeyDerivation;
@@ -33,29 +29,25 @@ import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.*;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class DIDVault {
-	
+
 	private File rootDirectory;
 	//List<String> didNames = new Vector<String>();
 	//List<String> didSeedFilePaths = new Vector<String>();
 	List<DID> dids = new Vector<DID>();
-	
+
 	public DIDVault() throws FileNotFoundException {
-		
+
 		this(new File("did_vault"));
-		
+
 	}
-	
+
 	public DIDVault(File f) throws FileNotFoundException {
-		
+
 		if(f.isDirectory()) {
 			rootDirectory = f;
 			loadDIDs();
@@ -71,7 +63,7 @@ public class DIDVault {
 	}
 
 	public DID restoreFromSeedPhrases(String name, List<String> seedPhrases, String passphrase) throws Exception {
-		
+
 		MnemonicCode code = new MnemonicCode(seedPhrases);
 
 		KeyDerivation keyder = KeyDerivation.INSTANCE;
@@ -89,89 +81,89 @@ public class DIDVault {
 
 		System.out.println("canonical: "+ didCanonical);
 		System.out.println("long form: "+ didLongForm);
-		
+
 		DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
 		DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
-		
+
 		Document doc = docBuilder.newDocument();
 		Element rootElement = doc.createElement("did");
 		rootElement.setAttribute("name", name);
 		doc.appendChild(rootElement);
-		
-		
+
+
 		File didMetadata = File.createTempFile("did_", ".xml", rootDirectory);
-		
+
 		File seedFile = new File(didMetadata.getAbsolutePath()+"_seed.bytes");
 		try (FileOutputStream fos = new FileOutputStream(seedFile)) {
 			fos.write(seed);
-		    //fos.close // no need, try-with-resources auto close
+			//fos.close // no need, try-with-resources auto close
 		}
-		
+
 		Element seedElement = doc.createElement("seed");
 		seedElement.setTextContent(seedFile.getAbsolutePath());
 		rootElement.appendChild(seedElement);
-		
+
 		// write DOM document to a file
-        try (FileOutputStream output =
-                     new FileOutputStream(didMetadata.getAbsolutePath())) {
-            FileOperations.writeXml(doc, output);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-			
-        return new DID(name, didMetadata.getAbsolutePath(), seedFile.getAbsolutePath());
+		try (FileOutputStream output =
+				new FileOutputStream(didMetadata.getAbsolutePath())) {
+			FileOperations.writeXml(doc, output);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+
+		return new DID(name, didMetadata.getAbsolutePath(), seedFile.getAbsolutePath());
 	}
-	
-	
-    private void loadDIDs() {
-
-    	// loop through vault and get name of all dids
-    	List<String> files = new Vector<String>();
-
-    	// Instantiate the Factory
-    	DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-    	try {
-    		// optional, but recommended
-    		// process XML securely, avoid attacks like XML External Entities (XXE)
-    		dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-
-    		// parse XML file
-    		DocumentBuilder db = dbf.newDocumentBuilder();
 
 
-    		files = findFiles(Paths.get(rootDirectory.getAbsolutePath()), "xml");
-    		
-    		//didNames.clear();
-    		//didSeedFilePaths.clear();
-    		
-    		for(int i = 0; i < files.size(); i++) {
-    			Document doc = db.parse(new File(files.get(i)));
-    			doc.getDocumentElement().normalize();
+	private void loadDIDs() {
 
-    			Node xml_did = doc.getElementsByTagName("did").item(0);
-    			Element elem_did = (Element) xml_did;
+		// loop through vault and get name of all dids
+		List<String> files = new Vector<String>();
 
-    			DID tmpDID = new DID(elem_did.getAttribute("name"), files.get(i), elem_did.getElementsByTagName("seed").item(0).getTextContent());
-    			dids.add(i, tmpDID);
-    			//didNames.add(elem_did.getAttribute("name"));
+		// Instantiate the Factory
+		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+		try {
+			// optional, but recommended
+			// process XML securely, avoid attacks like XML External Entities (XXE)
+			dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
 
-    			//didSeedFilePaths.add(elem_did.getElementsByTagName("seed").item(0).getTextContent());
+			// parse XML file
+			DocumentBuilder db = dbf.newDocumentBuilder();
 
-    		}
 
-    	}
-    	catch (SAXException saxe) {
-    		System.err.println("Error reading DID settings. "+ saxe.getMessage());
-    	}
-    	catch (ParserConfigurationException pce) {
-    		System.err.println("Error reading DIDs. "+ pce.getMessage());
-    	}
-    	catch (IOException e) {
-    		// TODO Auto-generated catch block
-    		e.printStackTrace();
-    	}
+			files = findFiles(Paths.get(rootDirectory.getAbsolutePath()), "xml");
 
-    }
+			//didNames.clear();
+			//didSeedFilePaths.clear();
+
+			for(int i = 0; i < files.size(); i++) {
+				Document doc = db.parse(new File(files.get(i)));
+				doc.getDocumentElement().normalize();
+
+				Node xml_did = doc.getElementsByTagName("did").item(0);
+				Element elem_did = (Element) xml_did;
+
+				DID tmpDID = new DID(elem_did.getAttribute("name"), files.get(i), elem_did.getElementsByTagName("seed").item(0).getTextContent());
+				dids.add(i, tmpDID);
+				//didNames.add(elem_did.getAttribute("name"));
+
+				//didSeedFilePaths.add(elem_did.getElementsByTagName("seed").item(0).getTextContent());
+
+			}
+
+		}
+		catch (SAXException saxe) {
+			System.err.println("Error reading DID settings. "+ saxe.getMessage());
+		}
+		catch (ParserConfigurationException pce) {
+			System.err.println("Error reading DIDs. "+ pce.getMessage());
+		}
+		catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+	}
 
 	public String[] getDIDNames() {
 		List<String> didNames = new Vector<String>(dids.size());
@@ -180,29 +172,29 @@ public class DIDVault {
 		}
 		return didNames.toArray(String[]::new);
 	}
-	
+
 	private static List<String> findFiles(Path path, String fileExtension) throws IOException {
 
-	        if (!Files.isDirectory(path)) {
-	            throw new IllegalArgumentException("Path must be a directory!");
-	        }
+		if (!Files.isDirectory(path)) {
+			throw new IllegalArgumentException("Path must be a directory!");
+		}
 
-	        List<String> result;
+		List<String> result;
 
-	        try (Stream<Path> walk = Files.walk(path)) {
-	            result = walk
-	                    .filter(p -> !Files.isDirectory(p))
-	                    // this is a path, not string,
-	                    // this only test if path end with a certain path
-	                    //.filter(p -> p.endsWith(fileExtension))
-	                    // convert path to string first
-	                    .map(p -> p.toString().toLowerCase())
-	                    .filter(f -> f.endsWith(fileExtension))
-	                    .collect(Collectors.toList());
-	        }
+		try (Stream<Path> walk = Files.walk(path)) {
+			result = walk
+					.filter(p -> !Files.isDirectory(p))
+					// this is a path, not string,
+					// this only test if path end with a certain path
+					//.filter(p -> p.endsWith(fileExtension))
+					// convert path to string first
+					.map(p -> p.toString().toLowerCase())
+					.filter(f -> f.endsWith(fileExtension))
+					.collect(Collectors.toList());
+		}
 
-	        return result;
-	    }
+		return result;
+	}
 
 	public String getDIDSeed(int didIndex) {
 		//return didSeedFilePaths.get(didIndex);
@@ -210,7 +202,7 @@ public class DIDVault {
 	}
 
 	public DID createNewDID(String name, String passphrase) throws Exception {
-		
+
 		KeyDerivation keyder = KeyDerivation.INSTANCE;
 
 		byte[] seed = keyder.binarySeed(keyder.randomMnemonicCode(), passphrase);
@@ -226,44 +218,44 @@ public class DIDVault {
 
 		System.out.println("canonical: "+ didCanonical);
 		System.out.println("long form: "+ didLongForm);
-		
+
 		DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
 		DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
-		
+
 		Document doc = docBuilder.newDocument();
 		Element rootElement = doc.createElement("did");
 		rootElement.setAttribute("name", name);
 		doc.appendChild(rootElement);
-		
-		
+
+
 		File didMetadata = File.createTempFile("did_", ".xml", rootDirectory);
-		
+
 		File seedFile = new File(didMetadata.getAbsolutePath()+"_seed.bytes");
 		try (FileOutputStream fos = new FileOutputStream(seedFile)) {
 			fos.write(seed);
-		    //fos.close // no need, try-with-resources auto close
+			//fos.close // no need, try-with-resources auto close
 		}
-		
+
 		Element seedElement = doc.createElement("seed");
 		seedElement.setTextContent(seedFile.getAbsolutePath());
 		rootElement.appendChild(seedElement);
-		
+
 		// write DOM document to a file
-        try (FileOutputStream output =
-                     new FileOutputStream(didMetadata.getAbsolutePath())) {
-            FileOperations.writeXml(doc, output);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        
-        return new DID(name, didMetadata.getAbsolutePath(), seedFile.getAbsolutePath());
-		
+		try (FileOutputStream output =
+				new FileOutputStream(didMetadata.getAbsolutePath())) {
+			FileOperations.writeXml(doc, output);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+
+		return new DID(name, didMetadata.getAbsolutePath(), seedFile.getAbsolutePath());
+
 	}
 
 	public DID[] getAllDIDs() {
 		//loadDIDs();
 		/*Vector<DID> dids = new Vector<DID>(didNames.size());
-		
+
 		for(int i = 0; i < didNames.size(); i++) {
 			dids.add(i, new DID(didNames.get(i), didSeedFilePaths.get(i)));
 		}
@@ -272,10 +264,10 @@ public class DIDVault {
 	}
 
 	/*public void setDIDOperationHash(DID did, String operationHash) {
-		
+
 		//didSeedFilePaths.indexOf(loadedDID)
-		
+
 	}*/
-	
-	
+
+
 }

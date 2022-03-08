@@ -5,13 +5,13 @@ import io.iohk.atala.prism.protos.models.LedgerData;
 
 
 public class PrismKeyTreeObject {
-	
+
 	private String name;
 	private int type;
 	private PrismKeyInformation info;
-	
+
 	public PrismKeyTreeObject(PrismKeyInformation keyInfo) {
-		
+
 		name = keyInfo.getKeyId();
 		type = keyInfo.getKeyTypeEnum();
 		info = keyInfo;
@@ -25,13 +25,13 @@ public class PrismKeyTreeObject {
 	public int getType() {
 		return type;
 	}
-	
+
 	public LedgerData getAddedOn() {
 		return info.getAddedOn();
 	}
-	
+
 	public LedgerData getRevokedOn() {
 		return info.getRevokedOn();
 	}
-	
+
 }

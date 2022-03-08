@@ -8,13 +8,13 @@ import com.elementarysoftware.prism.DID;
 import publishDid.PrismNodePublishAction;
 
 public class PublishDIDJob implements Runnable {
-	
+
 	private DID did;
-	
+
 	public PublishDIDJob(DID d) {
 		did = d;
 	}
-	
+
 	public void run() {
 		String operationHash = "";
 		try {
@@ -28,5 +28,5 @@ public class PublishDIDJob implements Runnable {
 			did.setLatestOperationHash(operationHash);	
 		}
 	}
-	
+
 }

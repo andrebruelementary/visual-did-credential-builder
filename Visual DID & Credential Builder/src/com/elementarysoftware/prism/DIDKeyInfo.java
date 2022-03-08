@@ -1,9 +1,7 @@
 package com.elementarysoftware.prism;
 
-import io.iohk.atala.prism.identity.PrismKeyType;
-
 public class DIDKeyInfo {
-	
+
 	//public static final String KEY_TYPE_AUTHENTICATION = "Authentication";
 	public static final String KEY_TYPE_ISSUING = "Issuing";
 	public static final String KEY_TYPE_MASTER = "Master";
@@ -11,7 +9,7 @@ public class DIDKeyInfo {
 	private int keyType;
 	private int keyIndex;
 	private String keyName;
-	
+
 	/**
 	 * @param type - int, must correspond to one of the constants of io.iohk.atala.prism.identity.PrismKeyType
 	 * @param keyIndex - int, index of key in DID
@@ -35,7 +33,7 @@ public class DIDKeyInfo {
 	public int getKeyIndex() {
 		return keyIndex;
 	}
-	
+
 	public String getKeyName() {
 		return keyName;
 	}

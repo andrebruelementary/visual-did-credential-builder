@@ -11,13 +11,13 @@ import publishDid.PrismNodePublishAction;
 public class PublishDIDToBlockchain {
 
 	private DID did;
-	
+
 	public PublishDIDToBlockchain(DID d) {
 		did = d;
 	}
-	
+
 	private ExecutorService executor = Executors.newSingleThreadExecutor();
-	
+
 	public Future<DID> publishDID() {
 		return executor.submit(() -> {
 			String operationHash = PrismNodePublishAction.Companion.publishDid(did.getSeed());
@@ -25,7 +25,7 @@ public class PublishDIDToBlockchain {
 			return did;
 		});
 	}
-	
-	
+
+
 
 }

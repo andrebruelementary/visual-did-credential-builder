@@ -3,13 +3,7 @@ package com.elementarysoftware.vdcb.tree;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.InputStream;
-import java.util.List;
-import java.util.Vector;
-
 import org.eclipse.jface.resource.ImageDescriptor;
-import org.eclipse.jface.resource.ImageRegistry;
-import org.eclipse.jface.resource.JFaceResources;
 import org.eclipse.jface.viewers.ILabelProvider;
 import org.eclipse.jface.viewers.ILabelProviderListener;
 import org.eclipse.swt.graphics.Image;
@@ -17,9 +11,7 @@ import org.eclipse.swt.widgets.Display;
 
 import com.elementarysoftware.vdcb.PrismImageRegistry;
 
-import io.iohk.atala.prism.identity.PrismKeyInformation;
 import io.iohk.atala.prism.identity.PrismKeyType;
-import io.iohk.atala.prism.protos.models.LedgerData;
 
 public class DIDDataModelTreeLabelProvider implements ILabelProvider {
 
@@ -28,15 +20,15 @@ public class DIDDataModelTreeLabelProvider implements ILabelProvider {
 	private static final int TYPE_ISSUING_KEY = PrismKeyType.INSTANCE.getISSUING_KEY();
 	private static final int TYPE_REVOCATION_KEY = PrismKeyType.INSTANCE.getREVOCATION_KEY();
 	private Display display;
-	
-	
+
+
 	public DIDDataModelTreeLabelProvider(Display d) {
 		super();
 		display = d;
 		ir = new PrismImageRegistry();
-		
-		
-		
+
+
+
 		try {
 			ir.put(PrismImageRegistry.MASTER_KEY, ImageDescriptor.createFromImage(new Image(display, new FileInputStream(new File("img/master_key.gif")))));
 			ir.put(PrismImageRegistry.ISSUING_KEY, ImageDescriptor.createFromImage(new Image(display, new FileInputStream(new File("img/issuing_key.gif")))));
@@ -47,12 +39,12 @@ public class DIDDataModelTreeLabelProvider implements ILabelProvider {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		
+
 		//InputStream is = DIDDataModelTreeLabelProvider.class.getResourceAsStream(filepath);
-		
+
 		//Image masterimage = new Image(display, is);
 		//ir.put(PrismImageRegistry.MASTER_KEY, ImageDescriptor.createFromImage(masterimage));
-		
+
 		//ir.put(PrismImageRegistry.ISSUING_KEY, ImageDescriptor.createFromImage(new Image(display, PrismImageRegistry.class.getClassLoader().getResourceAsStream("img/issuing_key.png"))));
 	}
 
@@ -120,11 +112,11 @@ public class DIDDataModelTreeLabelProvider implements ILabelProvider {
 	@Override
 	public String getText(Object element) {
 		//System.out.println("getText "+ element.getClass().toString());
-		
+
 		if(element.getClass() == PrismKeyTreeObject.class) {
 			PrismKeyTreeObject to = (PrismKeyTreeObject) element;
 			return to.getName();
-			
+
 		}
 		else if(element.getClass() == PrismTimestampTreeObject.class) {
 			PrismTimestampTreeObject to = (PrismTimestampTreeObject) element;
@@ -133,7 +125,7 @@ public class DIDDataModelTreeLabelProvider implements ILabelProvider {
 		else {
 			System.out.println("DIDDataModelTreeLabelProvider: No text configured for class "+ element.getClass().toString());
 		}
-		
+
 		return element.toString();
 	}
 
