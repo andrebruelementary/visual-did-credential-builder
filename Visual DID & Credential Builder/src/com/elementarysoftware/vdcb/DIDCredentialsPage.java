@@ -19,10 +19,10 @@ import org.eclipse.swt.layout.GridData;
 public class DIDCredentialsPage extends Dialog {
 
 	DID did;
-	
-	
+
 	/**
 	 * Create the dialog.
+	 * 
 	 * @param parentShell
 	 */
 	public DIDCredentialsPage(Shell credentialsShell, DID d) {
@@ -33,6 +33,7 @@ public class DIDCredentialsPage extends Dialog {
 
 	/**
 	 * Create contents of the dialog.
+	 * 
 	 * @param parent
 	 */
 	@Override
@@ -40,18 +41,18 @@ public class DIDCredentialsPage extends Dialog {
 		Composite container = (Composite) super.createDialogArea(parent);
 		GridLayout gridLayout = (GridLayout) container.getLayout();
 		gridLayout.numColumns = 2;
-		
+
 		TreeViewer treeViewer = new TreeViewer(container, SWT.BORDER);
 		Tree tree = treeViewer.getTree();
 		tree.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 3));
-		
+
 		Button btnIssueCredential = new Button(container, SWT.NONE);
 		GridData gd_btnIssueCredential = new GridData(SWT.LEFT, SWT.CENTER, false, false, 1, 1);
 		gd_btnIssueCredential.widthHint = 153;
 		btnIssueCredential.setLayoutData(gd_btnIssueCredential);
 		btnIssueCredential.setBounds(281, 37, 159, 27);
 		btnIssueCredential.setText("Issue credential");
-		
+
 		Button btnRevokeCredential = new Button(container, SWT.NONE);
 		GridData gd_btnRevokeCredential = new GridData(SWT.LEFT, SWT.CENTER, false, false, 1, 1);
 		gd_btnRevokeCredential.widthHint = 149;
@@ -65,12 +66,14 @@ public class DIDCredentialsPage extends Dialog {
 
 	/**
 	 * Create contents of the button bar.
+	 * 
 	 * @param parent
 	 */
 	@Override
 	protected void createButtonsForButtonBar(Composite parent) {
 		createButton(parent, IDialogConstants.OK_ID, IDialogConstants.OK_LABEL, true);
-		//createButton(parent, IDialogConstants.CANCEL_ID, IDialogConstants.CANCEL_LABEL, false);
+		// createButton(parent, IDialogConstants.CANCEL_ID,
+		// IDialogConstants.CANCEL_LABEL, false);
 	}
 
 	/**

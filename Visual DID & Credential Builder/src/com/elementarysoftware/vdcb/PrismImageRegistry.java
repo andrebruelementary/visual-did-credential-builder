@@ -9,5 +9,5 @@ public class PrismImageRegistry extends ImageRegistry {
 	public static final String REVOCATION_KEY = "REVOCATION_KEY";
 	public static final String ADDED_DATE = "ADDED_DATE";
 	public static final String REVOKED_DATE = "REVOKED_DATE";
-	
+
 }
