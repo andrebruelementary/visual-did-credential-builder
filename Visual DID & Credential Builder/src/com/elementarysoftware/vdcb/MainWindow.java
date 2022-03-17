@@ -22,7 +22,7 @@ public class MainWindow {
 	// private Button btnPublishDid;
 	// private Button btnUpdateDid;
 	private Button btnViewDid;
-	private Button btnCredentialsYouHold;
+	private Button btnCredentialActions;
 
 	/**
 	 * Launch the application.
@@ -46,7 +46,7 @@ public class MainWindow {
 		// btnPublishDid.setEnabled(false);
 		// btnUpdateDid.setEnabled(false);
 		btnViewDid.setEnabled(did != null);
-		btnCredentialsYouHold.setEnabled(did != null);
+		btnCredentialActions.setEnabled(did != null);
 
 		int published_status = loadedDID.getStatus();
 		if (published_status == DID.STATUS_PUBLISHED) {
@@ -137,16 +137,16 @@ public class MainWindow {
 		text.setToolTipText("Search contacts");
 		text.setBounds(10, 10, 140, 19);
 
-		btnCredentialsYouHold = new Button(shlVisualDid, SWT.NONE);
-		btnCredentialsYouHold.setEnabled(false);
-		btnCredentialsYouHold.addSelectionListener(new SelectionAdapter() {
+		btnCredentialActions = new Button(shlVisualDid, SWT.NONE);
+		btnCredentialActions.setEnabled(false);
+		btnCredentialActions.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
 				openDIDCredentialsPage();
 			}
 		});
-		btnCredentialsYouHold.setBounds(281, 7, 159, 27);
-		btnCredentialsYouHold.setText("View credentials");
+		btnCredentialActions.setBounds(281, 7, 159, 27);
+		btnCredentialActions.setText("Credential Actions");
 
 		/*
 		 * Button btnIssueCredential = new Button(shlVisualDid, SWT.NONE);
