@@ -9,6 +9,7 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Shell;
 
+import com.elementarysoftware.prism.Contact;
 import com.elementarysoftware.prism.DID;
 import com.elementarysoftware.prism.jobs.RevokeCredentialJob;
 import com.elementarysoftware.prism.jobs.IssueCredentialJob;
@@ -79,9 +80,23 @@ public class DIDCredentialsPage extends Dialog {
 		btnIssueCredential.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
-				IssueCredentialJob job = new IssueCredentialJob(did);
+				
+				// Initialize the issue credential job with JSON Credential to issue and contact that will be issued to (become Holder of credential)
+				JSONObject credentialJson = (JSONObject) treeViewer.getInput();
+				System.out.println("credential JSON = "+ credentialJson.toJSONString());
+				
+				if(credentialJson == null) return;
+				
+				SelectContactDialog contactSelection = new SelectContactDialog(getShell(), did.getContacts());
+				contactSelection.open();
+				Contact holderContact = contactSelection.getSelectedContact();
+				
+				if(holderContact == null) return;
+					
+				IssueCredentialJob job = new IssueCredentialJob(did,holderContact,credentialJson);
 				Thread t = new Thread(job);
 				t.start();
+				
 			}
 		});
 		GridData gd_btnIssueCredential = new GridData(SWT.LEFT, SWT.CENTER, false, false, 1, 1);
