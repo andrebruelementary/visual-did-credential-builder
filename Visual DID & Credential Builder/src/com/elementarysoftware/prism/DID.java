@@ -5,6 +5,8 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.HashMap;
+
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -15,6 +17,7 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
 import com.elementarysoftware.io.FileOperations;
@@ -30,7 +33,7 @@ import io.iohk.atala.prism.identity.PrismKeyType;
 
 public class DID {
 
-	protected Contact[] contacts;
+	protected HashMap<String, Contact> contacts;
 
 	private String name;
 	private String seedFilePath;
@@ -47,6 +50,7 @@ public class DID {
 		name = n;
 		metadataFilePath = metaPath;
 		seedFilePath = seedPath;
+		contacts = readContactsFromMetadataFile();
 	}
 
 	public String getName() {
@@ -273,9 +277,149 @@ public class DID {
 
 
 	}
+	
+	private HashMap<String, Contact> readContactsFromMetadataFile() {
+
+		HashMap<String,Contact> tmpContacts = new HashMap<String,Contact>();
+		
+		// Instantiate the Factory
+		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+		try {
+			// optional, but recommended
+			// process XML securely, avoid attacks like XML External Entities (XXE)
+			dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+
+			// parse XML file
+			DocumentBuilder db = dbf.newDocumentBuilder();
+
+			Document doc = db.parse(new File(metadataFilePath));
+			doc.getDocumentElement().normalize();
+
+			NodeList xml_contacts = doc.getElementsByTagName("contact");
+			for(int i = 0; i < xml_contacts.getLength(); i++) {
+				
+				Node contactNode = xml_contacts.item(i);
+				Node nameAttribute = contactNode.getAttributes().getNamedItem("name");
+				
+				tmpContacts.put(nameAttribute.getNodeValue(), new Contact(contactNode.getTextContent(),nameAttribute.getNodeValue()));
+			}
+			
+		}
+		catch (SAXException saxe) {
+			System.err.println("Error reading DID settings. "+ saxe.getMessage());
+		}
+		catch (ParserConfigurationException pce) {
+			System.err.println("Error reading DIDs. "+ pce.getMessage());
+		}
+		catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+
+		return tmpContacts;
+
+	}
+	
+	private void addContactToMetadataFile(Contact c) {
+
+		// Instantiate the Factory
+		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+		try {
+			// optional, but recommended
+			// process XML securely, avoid attacks like XML External Entities (XXE)
+			dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+
+			// parse XML file
+			DocumentBuilder db = dbf.newDocumentBuilder();
+
+			Document doc = db.parse(new File(metadataFilePath));
+			doc.getDocumentElement().normalize();
+
+			Node xml_did = doc.getElementsByTagName("did").item(0);
+			
+			NodeList xml_contacts = doc.getElementsByTagName("contacts");
+			Node contacts_node;
+			if(xml_contacts.getLength() == 0) {
+				// contacts node not presently in xml file...add it
+				Element contactsElement = doc.createElement("contacts");
+				contacts_node = xml_did.appendChild(contactsElement);
+			}
+			else {
+				contacts_node = xml_contacts.item(0);
+			}
+			
+			Element contactElement = doc.createElement("contact");
+			contactElement.setAttribute("name", c.getName());
+			contactElement.appendChild(doc.createTextNode(c.getDIDString()));
+			
+			contacts_node.appendChild(contactElement);
+			
+			// write DOM document to a file
+			try (FileOutputStream output =
+					new FileOutputStream(metadataFilePath)) {
+				FileOperations.writeXml(doc, output);
+			} catch (IOException e) {
+				e.printStackTrace();
+			} catch (TransformerException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+
+		}
+		catch (SAXException saxe) {
+			System.err.println("Error reading DID settings. "+ saxe.getMessage());
+		}
+		catch (ParserConfigurationException pce) {
+			System.err.println("Error reading DIDs. "+ pce.getMessage());
+		}
+		catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+
+	}
+	
 
 	public String getLogFilePath() {
 		return metadataFilePath +".log";
+	}
+	
+	public boolean addContact(PrismDid did, String name) {
+		if(contacts.containsKey(name)) {
+			return false;
+		}
+		
+		Contact c = new Contact(did, name);
+		addContactToMetadataFile(c);
+		
+		contacts.put(name, c);
+		return true;
+		
+	}
+	
+	public boolean addContact(String didString, String name) {
+		return addContact(PrismDid.fromString(didString), name);
+	}
+	
+	public boolean hasContact(String name) {
+		if(contacts != null) {
+			return contacts.containsKey(name);
+		}
+		return false;
+	}
+	
+	public Contact getContact(String name) {
+		return contacts.get(name);
+	}
+	
+	public HashMap<String,Contact> getContacts() {
+		return contacts;
+	}
+	
+	public void removeContact() {
+		
 	}
 
 }

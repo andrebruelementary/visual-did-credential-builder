@@ -131,6 +131,7 @@ public class UpdateDIDJob implements Runnable {
 
 				System.setOut(console);
 
+				//TODO: CHECK TO SEE IF IT IS POSSIBLE TO RETRY USING THE HASH FROM PrismDid - .getStateHash()
 				/*
 				if(!operationHash.equals("InvalidPreviousOperation()")) {
 					System.out.println("ADD OPERATION HASH RETURNED = "+ operationHash);

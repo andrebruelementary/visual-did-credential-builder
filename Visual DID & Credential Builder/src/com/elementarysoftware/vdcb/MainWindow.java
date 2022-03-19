@@ -1,5 +1,10 @@
 package com.elementarysoftware.vdcb;
 
+import java.util.HashMap;
+import java.util.Iterator;
+
+import org.eclipse.jface.dialogs.IInputValidator;
+import org.eclipse.jface.dialogs.InputDialog;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
@@ -10,7 +15,10 @@ import org.eclipse.swt.widgets.List;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.swt.widgets.Text;
 
+import com.elementarysoftware.prism.Contact;
 import com.elementarysoftware.prism.DID;
+
+import io.iohk.atala.prism.identity.PrismDid;
 
 public class MainWindow {
 
@@ -23,6 +31,8 @@ public class MainWindow {
 	// private Button btnUpdateDid;
 	private Button btnViewDid;
 	private Button btnCredentialActions;
+	private Button btnNewContact;
+	private List listOfContacts;
 
 	/**
 	 * Launch the application.
@@ -46,6 +56,7 @@ public class MainWindow {
 		// btnPublishDid.setEnabled(false);
 		// btnUpdateDid.setEnabled(false);
 		btnViewDid.setEnabled(did != null);
+		btnNewContact.setEnabled(did != null);
 		btnCredentialActions.setEnabled(did != null);
 
 		int published_status = loadedDID.getStatus();
@@ -59,6 +70,17 @@ public class MainWindow {
 		} else {
 			displayCurrentDIDStatus.setText("Unknown");
 		}
+		
+		if(loadedDID != null) {
+			// remove all contacts from the list and add contacts for currently loaded DID
+			listOfContacts.removeAll();
+			Iterator<String> it = loadedDID.getContacts().keySet().iterator();
+			while(it.hasNext()) {
+				String name = it.next();
+				listOfContacts.add(name);
+			}
+		}
+		
 	}
 
 	/**
@@ -125,11 +147,19 @@ public class MainWindow {
 		shlVisualDid.setSize(450, 300);
 		shlVisualDid.setText("Visual DID & credential builder");
 
-		List list = new List(shlVisualDid, SWT.BORDER);
-		list.setItems(new String[] { "Alice", "Bob", "Charlie", "University", "Work", "Doctor" });
-		list.setBounds(10, 37, 140, 198);
+		listOfContacts = new List(shlVisualDid, SWT.BORDER);
+		//listOfContacts.setItems(new String[] { "Alice", "Bob", "Charlie", "University", "Work", "Doctor" });
+		
+		listOfContacts.setBounds(10, 37, 140, 198);
 
-		Button btnNewContact = new Button(shlVisualDid, SWT.NONE);
+		btnNewContact = new Button(shlVisualDid, SWT.NONE);
+		btnNewContact.setEnabled(false);
+		btnNewContact.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				createNewContact();
+			}
+		});
 		btnNewContact.setBounds(10, 241, 140, 27);
 		btnNewContact.setText("New Contact");
 
@@ -237,5 +267,18 @@ public class MainWindow {
 		 * //comboViewer.getCombo().setText("0");
 		 */
 
+	}
+
+	protected void createNewContact() {
+		CreateNewContactDialog createContactDlg = new CreateNewContactDialog(shlVisualDid, loadedDID); //, "New contact...", "Please provide long form string of DID to add to your contacts list.", "did:prism:XXXXXXXX:XXXXX", new DIDLongFormValidator());
+		createContactDlg.open();
+		
+		listOfContacts.add(createContactDlg.getCreatedContact().getName());
+		
+		//System.out.println("did long form input "+ createContactDlg.getValue());
+		//PrismDid prismDID = PrismDid.fromString(createContactDlg.getValue());
+		
+		//loadedDID.addContact(createContactDlg.getValue(), createContactDlg.getContactName());
+		
 	}
 }
