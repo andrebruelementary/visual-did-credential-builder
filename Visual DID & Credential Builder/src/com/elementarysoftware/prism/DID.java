@@ -5,7 +5,10 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Vector;
 
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
@@ -300,8 +303,9 @@ public class DID {
 				
 				Node contactNode = xml_contacts.item(i);
 				Node nameAttribute = contactNode.getAttributes().getNamedItem("name");
+				Node didStringAttribute = contactNode.getAttributes().getNamedItem("didstring");
 				
-				tmpContacts.put(nameAttribute.getNodeValue(), new Contact(contactNode.getTextContent(),nameAttribute.getNodeValue()));
+				tmpContacts.put(nameAttribute.getNodeValue(), new Contact(didStringAttribute.getNodeValue(),nameAttribute.getNodeValue()));
 			}
 			
 		}
@@ -312,7 +316,6 @@ public class DID {
 			System.err.println("Error reading DIDs. "+ pce.getMessage());
 		}
 		catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 
@@ -419,6 +422,91 @@ public class DID {
 	}
 	
 	public void removeContact() {
+		
+	}
+
+	public Batch[] getCredentialBatches() {
+		
+		List<Batch> tmpBatches = new Vector<Batch>();
+		
+		// Instantiate the Factory
+		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+		try {
+			// optional, but recommended
+			// process XML securely, avoid attacks like XML External Entities (XXE)
+			dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+
+			// parse XML file
+			DocumentBuilder db = dbf.newDocumentBuilder();
+			DocumentBuilder batchDb = dbf.newDocumentBuilder();
+
+			System.out.println("reading "+ metadataFilePath);
+			
+			Document doc = db.parse(new File(metadataFilePath));
+			doc.getDocumentElement().normalize();
+			
+			Node xml_did = doc.getElementsByTagName("did").item(0);
+
+			Node xml_history_folder_name = ((Element) xml_did).getElementsByTagName("history").item(0);
+			
+			System.out.println("folder with batches "+ xml_history_folder_name.getTextContent());
+			
+			// loop through vault and get name of all dids
+			List<String> files;
+			files = FileOperations.findFiles(Paths.get(new File("did_vault/"+xml_history_folder_name.getTextContent()).getAbsolutePath()), "xml");
+
+			for(int i = 0; i < files.size(); i++) {
+				System.out.println("reading file "+ files.get(i));
+				Document batchXMLDoc = batchDb.parse(new File(files.get(i)));
+				batchXMLDoc.getDocumentElement().normalize();
+				
+				Node xml_batch = batchXMLDoc.getElementsByTagName("batch").item(0);
+				
+				Node batchIDAttribute = xml_batch.getAttributes().getNamedItem("id");
+				Node batchOpHashAttribute = xml_batch.getAttributes().getNamedItem("latestOperationHash");
+				Batch batch = new Batch(batchIDAttribute.getNodeValue(), batchOpHashAttribute.getNodeValue());
+				
+				NodeList xml_credential_list = ((Element)xml_batch).getElementsByTagName("credential");
+				for(int j = 0; j < xml_credential_list.getLength(); j++) {
+					
+					NamedNodeMap credentialAttributes = xml_credential_list.item(j).getAttributes();
+					Credential credential = new Credential(credentialAttributes.getNamedItem("holdername").getNodeValue());
+					
+					if(credentialAttributes.getNamedItem("hash") != null) {
+						credential.setHash(credentialAttributes.getNamedItem("hash").getNodeValue());
+					}
+					
+					if(credentialAttributes.getNamedItem("txid") != null) {
+						credential.setTxId(credentialAttributes.getNamedItem("txid").getNodeValue());
+					}
+					
+					if(credentialAttributes.getNamedItem("network") != null) {
+						credential.setNetwork(credentialAttributes.getNamedItem("network").getNodeValue());
+					}
+					
+					credential.setPartOfBatch(batch);
+					batch.addCredential(credential);
+					
+					
+				}
+				
+				tmpBatches.add(batch);
+
+			}
+			
+		}
+		catch (SAXException saxe) {
+			System.err.println("Error reading Batch settings. "+ saxe.getMessage());
+		}
+		catch (ParserConfigurationException pce) {
+			System.err.println("Error reading Batches. "+ pce.getMessage());
+		}
+		catch (IOException e) {
+			e.printStackTrace();
+		}
+
+
+		return tmpBatches.toArray(Batch[]::new);
 		
 	}
 

@@ -131,16 +131,20 @@ public class DIDVault {
 			DocumentBuilder db = dbf.newDocumentBuilder();
 
 
-			files = findFiles(Paths.get(rootDirectory.getAbsolutePath()), "xml");
+			files = FileOperations.findFiles(Paths.get(rootDirectory.getAbsolutePath()), "xml");
 
 			//didNames.clear();
 			//didSeedFilePaths.clear();
 
 			for(int i = 0; i < files.size(); i++) {
+				System.out.println("reading file "+ files.get(i));
 				Document doc = db.parse(new File(files.get(i)));
 				doc.getDocumentElement().normalize();
 
 				Node xml_did = doc.getElementsByTagName("did").item(0);
+				
+				if(xml_did == null) continue;
+				
 				Element elem_did = (Element) xml_did;
 
 				DID tmpDID = new DID(elem_did.getAttribute("name"), files.get(i), elem_did.getElementsByTagName("seed").item(0).getTextContent());
@@ -173,28 +177,7 @@ public class DIDVault {
 		return didNames.toArray(String[]::new);
 	}
 
-	private static List<String> findFiles(Path path, String fileExtension) throws IOException {
-
-		if (!Files.isDirectory(path)) {
-			throw new IllegalArgumentException("Path must be a directory!");
-		}
-
-		List<String> result;
-
-		try (Stream<Path> walk = Files.walk(path)) {
-			result = walk
-					.filter(p -> !Files.isDirectory(p))
-					// this is a path, not string,
-					// this only test if path end with a certain path
-					//.filter(p -> p.endsWith(fileExtension))
-					// convert path to string first
-					.map(p -> p.toString().toLowerCase())
-					.filter(f -> f.endsWith(fileExtension))
-					.collect(Collectors.toList());
-		}
-
-		return result;
-	}
+	
 
 	public String getDIDSeed(int didIndex) {
 		//return didSeedFilePaths.get(didIndex);

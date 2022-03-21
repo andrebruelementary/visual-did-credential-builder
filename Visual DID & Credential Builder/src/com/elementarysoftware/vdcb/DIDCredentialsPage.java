@@ -1,5 +1,7 @@
 package com.elementarysoftware.vdcb;
 
+import java.util.List;
+
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.swt.SWT;
@@ -23,6 +25,7 @@ import org.eclipse.swt.widgets.Tree;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.eclipse.jface.viewers.TreeViewer;
+import org.eclipse.jface.window.Window;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.layout.GridData;
@@ -31,7 +34,7 @@ import org.eclipse.swt.events.SelectionEvent;
 
 public class DIDCredentialsPage extends Dialog {
 
-	DID did;
+	private DID did;
 
 	/**
 	 * Create the dialog.
@@ -39,7 +42,6 @@ public class DIDCredentialsPage extends Dialog {
 	 * @param parentShell
 	 */
 	public DIDCredentialsPage(Shell credentialsShell, DID d) {
-		// TODO Auto-generated constructor stub
 		super(credentialsShell);
 		did = d;
 	}
@@ -109,9 +111,23 @@ public class DIDCredentialsPage extends Dialog {
 		btnRevokeCredential.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
-				RevokeCredentialJob job = new RevokeCredentialJob(did);
-				Thread t = new Thread(job);
-				t.start();
+				System.out.println("**** revoke credential ****");
+				// load list of credential batches and credential hashes from history
+				SelectBatchOrCredentialDialog batchCredentialDlg = new SelectBatchOrCredentialDialog(getShell(),did);
+				batchCredentialDlg.open();
+				
+				if(batchCredentialDlg.getReturnCode() == Window.OK) {
+					List selectedForRevocation = batchCredentialDlg.getSelectedForRevocation();
+					
+					System.out.println("Objects selected for revocation");
+					for(int i = 0; i < selectedForRevocation.size(); i++) {
+						System.out.println(selectedForRevocation.get(i).getClass().toString());
+					}
+				
+					RevokeCredentialJob job = new RevokeCredentialJob(did, selectedForRevocation);
+					Thread t = new Thread(job);
+					t.start();
+				}
 			}
 		});
 		GridData gd_btnRevokeCredential = new GridData(SWT.LEFT, SWT.CENTER, false, false, 1, 1);
