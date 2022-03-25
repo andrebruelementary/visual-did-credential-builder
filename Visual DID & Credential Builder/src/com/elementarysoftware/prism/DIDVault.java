@@ -5,6 +5,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.Properties;
 import java.util.Vector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -24,6 +25,7 @@ import org.w3c.dom.Node;
 import org.xml.sax.SAXException;
 
 import com.elementarysoftware.io.FileOperations;
+import com.ibm.icu.impl.locale.XCldrStub.FileUtilities;
 
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
@@ -32,6 +34,10 @@ import javax.xml.parsers.ParserConfigurationException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 
 public class DIDVault {
 
@@ -244,6 +250,49 @@ public class DIDVault {
 		}
 		return dids.toArray(DID[]::new);*/
 		return dids.toArray(DID[]::new);
+	}
+
+	public static void createNewVault(String databaseName, String username, String password) {
+		
+		String framework = "embedded";
+		String protocol = "jdbc:derby:";
+		
+		Properties props = new Properties(); // connection properties
+        // providing a user name and password is optional in the embedded
+        // and derbyclient frameworks
+        props.put("user", username);
+        props.put("password", password);
+        	
+		try {
+			
+			// TODO: In future release, introduce a settings page and let user specify the location of databases.
+			// Currently the vault databases are simply created in the vaults folder.
+			// Derby JDBC use the setting "user.dir" which by default is the running Java project directory. Settings page need to change this environment variable
+			// or in another way change where the databases are created
+				
+			Connection conn = DriverManager.getConnection(protocol + "./vaults/" + databaseName+ ";create=true", props);
+		
+			DatabaseMetaData dbInfo = conn.getMetaData();
+			System.out.println("Database product = "+ dbInfo.getDatabaseProductName());
+			System.out.println("Database driver = "+ dbInfo.getDriverName());
+			System.out.println("Database url = "+ dbInfo.getURL());
+			System.out.println("Connected as user = "+ dbInfo.getUserName());
+			
+			// lagring av byte[] i BLOB kolonne: https://db.apache.org/derby/docs/10.13/ref/rrefblob.html
+			
+			
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+			
+	}
+
+	public boolean containsDID(String didNameToCheck) {
+		for(int i = 0; i < dids.size(); i++) {
+			if(dids.get(i).getName().toLowerCase().equals(didNameToCheck.toLowerCase())) return true;
+		}
+		return false;
 	}
 
 	/*public void setDIDOperationHash(DID did, String operationHash) {

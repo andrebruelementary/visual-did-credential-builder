@@ -17,6 +17,7 @@ import org.eclipse.swt.widgets.Text;
 
 import com.elementarysoftware.prism.Contact;
 import com.elementarysoftware.prism.DID;
+import com.elementarysoftware.prism.DIDVault;
 
 import io.iohk.atala.prism.identity.PrismDid;
 
@@ -252,6 +253,18 @@ public class MainWindow {
 		});
 		btnViewDid.setBounds(281, 136, 159, 27);
 		btnViewDid.setText("DID Actions");
+		
+		Button btnCreateVaultDatabasePOC = new Button(shlVisualDid, SWT.NONE);
+		btnCreateVaultDatabasePOC.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				
+				DIDVault.createNewVault(loadedDID.getName(), loadedDID.getName(), "password");
+				
+			}
+		});
+		btnCreateVaultDatabasePOC.setBounds(281, 169, 159, 27);
+		btnCreateVaultDatabasePOC.setText("Create Vault POC");
 
 		// Combo combo = new Combo(shlVisualDid, SWT.NONE);
 		// final ComboViewer combo = new ComboViewer(shlVisualDid, SWT.NONE);

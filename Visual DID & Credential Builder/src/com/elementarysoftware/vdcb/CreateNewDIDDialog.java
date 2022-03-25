@@ -112,12 +112,12 @@ public class CreateNewDIDDialog extends Dialog {
 	 */
 	@Override
 	protected void createButtonsForButtonBar(Composite parent) {
-		Button button = createButton(parent, IDialogConstants.OK_ID, IDialogConstants.OK_LABEL, true);
-		button.addSelectionListener(new SelectionAdapter() {
+		/*Button button =*/ createButton(parent, IDialogConstants.OK_ID, IDialogConstants.OK_LABEL, true);
+		/*button.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
 			}
-		});
+		});*/
 		createButton(parent, IDialogConstants.CANCEL_ID, IDialogConstants.CANCEL_LABEL, false);
 	}
 
@@ -126,8 +126,15 @@ public class CreateNewDIDDialog extends Dialog {
 
 		try {
 			DIDVault didVault = new DIDVault();
-			createdDID = didVault.createNewDID(tfDIDName.getText(), tfDIDPassphrase.getText());
-			super.okPressed();
+			
+			if(didVault.containsDID(tfDIDName.getText())) {
+				MessageDialog.openError(getShell(), "Name already in use",
+						"The name already exist. Please provide unique name or use the existing DID");
+			}
+			else {
+				createdDID = didVault.createNewDID(tfDIDName.getText(), tfDIDPassphrase.getText());
+				super.okPressed();
+			}
 		} catch (FileNotFoundException fnfe) {
 			MessageDialog.openError(getShell(), "Error occurred", fnfe.getMessage());
 		} catch (Exception cse) {
