@@ -1,15 +1,13 @@
 package com.elementarysoftware.prism;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Properties;
 import java.util.Vector;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
 import io.iohk.atala.prism.api.KeyGenerator;
 import io.iohk.atala.prism.crypto.derivation.KeyDerivation;
 import io.iohk.atala.prism.crypto.derivation.MnemonicCode;
@@ -25,36 +23,52 @@ import org.w3c.dom.Node;
 import org.xml.sax.SAXException;
 
 import com.elementarysoftware.io.FileOperations;
-import com.ibm.icu.impl.locale.XCldrStub.FileUtilities;
-
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.Blob;
+import java.sql.Clob;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 
 public class DIDVault {
 
 	private File rootDirectory;
+	private File rootDbDirectory;
 	//List<String> didNames = new Vector<String>();
 	//List<String> didSeedFilePaths = new Vector<String>();
 	List<DID> dids = new Vector<DID>();
+	private String rootJDBCDirectoryPath = "jdbc:derby:./vaults/";
 
 	public DIDVault() throws FileNotFoundException {
 
-		this(new File("did_vault"));
-
+		//this(new File("did_vault"));
+		this(new File("vaults"));
 	}
 
 	public DIDVault(File f) throws FileNotFoundException {
 
 		if(f.isDirectory()) {
+			rootDbDirectory = f;
+			loadDIDs();
+		}
+		else {
+			if(f.mkdirs()) {
+				rootDbDirectory = f;
+			}
+			else {
+				throw new FileNotFoundException("Unable to create DID Vault root directory");
+			}
+		}
+		
+		/*if(f.isDirectory()) {
 			rootDirectory = f;
 			loadDIDs();
 		}
@@ -65,7 +79,7 @@ public class DIDVault {
 			else {
 				throw new FileNotFoundException("Unable to create DID Vault root directory");
 			}
-		}
+		}*/
 	}
 
 	public DID restoreFromSeedPhrases(String name, List<String> seedPhrases, String passphrase) throws Exception {
@@ -117,15 +131,33 @@ public class DIDVault {
 			e.printStackTrace();
 		}
 
-		return new DID(name, didMetadata.getAbsolutePath(), seedFile.getAbsolutePath());
+		String vaultUrl = createNewVault(name, name, passphrase, seed);
+		
+		return new DID(name, vaultUrl);
 	}
 
 
 	private void loadDIDs() {
 
 		// loop through vault and get name of all dids
-		List<String> files = new Vector<String>();
-
+		//List<String> files = new Vector<String>();
+		
+		System.out.println("Loading vaults");
+		// loop through the vaults directory and create did object for each of the database folders
+		String[] vaults = rootDbDirectory.list();
+		for(int i = 0; i < vaults.length; i++) {
+			System.out.println("vault found "+ vaults[i]);
+			File tmpVault = new File(vaults[i]);
+			//if(tmpVault.isDirectory()) {
+			//	System.out.println("vault added "+ vaults[i]);
+				dids.add(new DID(tmpVault.getName(), rootJDBCDirectoryPath + tmpVault.getName()));
+			//}
+			//else {
+			//	System.out.println("can read: "+tmpVault.canRead()+ ", path: "+ tmpVault.getAbsolutePath() + ", is directory: "+ tmpVault.isDirectory() + ", is file: "+ tmpVault.isFile() );
+			//}
+		}
+		
+		/*
 		// Instantiate the Factory
 		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 		try {
@@ -153,7 +185,7 @@ public class DIDVault {
 				
 				Element elem_did = (Element) xml_did;
 
-				DID tmpDID = new DID(elem_did.getAttribute("name"), files.get(i), elem_did.getElementsByTagName("seed").item(0).getTextContent());
+				DID tmpDID = new DID(elem_did.getAttribute("name"), files.get(i));
 				dids.add(i, tmpDID);
 				//didNames.add(elem_did.getAttribute("name"));
 
@@ -171,7 +203,7 @@ public class DIDVault {
 		catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
-		}
+		}*/
 
 	}
 
@@ -208,52 +240,18 @@ public class DIDVault {
 		System.out.println("canonical: "+ didCanonical);
 		System.out.println("long form: "+ didLongForm);
 
-		DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
-		DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
+		String vaultUrl = createNewVault(name, name, passphrase, seed);
 
-		Document doc = docBuilder.newDocument();
-		Element rootElement = doc.createElement("did");
-		rootElement.setAttribute("name", name);
-		doc.appendChild(rootElement);
-
-
-		File didMetadata = File.createTempFile("did_", ".xml", rootDirectory);
-
-		File seedFile = new File(didMetadata.getAbsolutePath()+"_seed.bytes");
-		try (FileOutputStream fos = new FileOutputStream(seedFile)) {
-			fos.write(seed);
-			//fos.close // no need, try-with-resources auto close
-		}
-
-		Element seedElement = doc.createElement("seed");
-		seedElement.setTextContent(seedFile.getAbsolutePath());
-		rootElement.appendChild(seedElement);
-
-		// write DOM document to a file
-		try (FileOutputStream output =
-				new FileOutputStream(didMetadata.getAbsolutePath())) {
-			FileOperations.writeXml(doc, output);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-
-		return new DID(name, didMetadata.getAbsolutePath(), seedFile.getAbsolutePath());
-
+		return new DID(name, vaultUrl);
 	}
 
 	public DID[] getAllDIDs() {
-		//loadDIDs();
-		/*Vector<DID> dids = new Vector<DID>(didNames.size());
-
-		for(int i = 0; i < didNames.size(); i++) {
-			dids.add(i, new DID(didNames.get(i), didSeedFilePaths.get(i)));
-		}
-		return dids.toArray(DID[]::new);*/
 		return dids.toArray(DID[]::new);
 	}
 
-	public static void createNewVault(String databaseName, String username, String password) {
+	private String createNewVault(String databaseName, String username, String password, byte[] seed) {
 		
+		String dbUrl = "";
 		String framework = "embedded";
 		String protocol = "jdbc:derby:";
 		
@@ -278,14 +276,113 @@ public class DIDVault {
 			System.out.println("Database url = "+ dbInfo.getURL());
 			System.out.println("Connected as user = "+ dbInfo.getUserName());
 			
-			// lagring av byte[] i BLOB kolonne: https://db.apache.org/derby/docs/10.13/ref/rrefblob.html
+			Statement createDidTableStmt = conn.createStatement();
 			
+			createDidTableStmt.execute("CREATE TABLE did(name VARCHAR(60), seed BLOB)");
+			System.out.println("DID table created");
+			createDidTableStmt.close();
+			
+			Statement createContactTableStmt = conn.createStatement();
+			createContactTableStmt.execute("CREATE TABLE contact(name VARCHAR(60), did_string CLOB)");
+			System.out.println("contact table created");
+			createContactTableStmt.close();
+			
+			String query = "INSERT INTO did(name,seed) VALUES (?, ?)";
+		    PreparedStatement pstmt;
+		    pstmt = conn.prepareStatement(query);
+			pstmt.setString(1, username);
+			
+			// lagring av byte[] i BLOB kolonne: https://db.apache.org/derby/docs/10.13/ref/rrefblob.html
+			Blob seedBlob = conn.createBlob();
+		    seedBlob.setBytes(1, seed);
+		   
+		    pstmt.setBlob(2, seedBlob);
+		    
+		    if(pstmt.execute()) {
+		    	System.out.println("Vault created and initialized for "+ username);
+		    	dbUrl = dbInfo.getURL();
+		    }
+		    	
+		    seedBlob.free();
+		    pstmt.close();
+			
+			
+			return dbUrl;
 			
 		} catch (SQLException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+		return dbUrl;
 			
+	}
+	
+	public void addAliceContactsToVault(Connection conn) {
+		
+		String query = "INSERT INTO contact(name,did_string) VALUES (?, ?)";
+	    PreparedStatement pstmt;
+		try {
+			pstmt = conn.prepareStatement(query);
+			pstmt.setString(1, "Bob");
+		    Clob didString = conn.createClob();
+		    didString.setString(1, "did:prism:5238e7f246c0af5284439f0324962d4fe6135f13d5946d753390a9528cd45579:Cj8KPRI7CgdtYXN0ZXIwEAFKLgoJc2VjcDI1NmsxEiECpwYDXnIlYa0OtDiSSgtEhSOGDDh3e5nNF1uduHDcXxg");
+		    pstmt.setClob(2, didString);
+		    pstmt.execute();
+		    System.out.println("Bob inserted .....");
+		    didString.free();
+		    pstmt.close();
+		    
+		    pstmt = conn.prepareStatement(query);
+			pstmt.setString(1, "Charlie");
+		    didString = conn.createClob();
+		    didString.setString(1, "did:prism:62441b3634f80655b13b0b7b670e307f0429f8e7ece8f8cdf318b6530a5abb98:Cj8KPRI7CgdtYXN0ZXIwEAFKLgoJc2VjcDI1NmsxEiEDQdICjEcope89n_H_tOFqZ7HKLSUXaBxBolEqROuNZMs");
+		    pstmt.setClob(2, didString);
+		    pstmt.execute();
+		    System.out.println("Charlie inserted .....");
+		    didString.free();
+		    pstmt.close();
+		    
+		    conn.close();
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	    
+	}
+	
+	public void queryAlice(Connection conn) {
+		
+		System.out.println("query Alice");
+		String selectQuery = "SELECT * FROM did WHERE name LIKE 'Alice'";
+		try {
+			Statement selectAliceStmt = conn.createStatement();
+			
+			ResultSet rs = selectAliceStmt.executeQuery(selectQuery);
+			
+			while (rs.next()) {
+				System.out.println("name = "+ rs.getString("name"));
+				
+				Blob blob = rs.getBlob("seed");
+
+				int blobLength = (int) blob.length();
+				System.out.println("length of seed "+ blobLength);
+				byte[] seed = blob.getBytes(1, blobLength);
+
+				System.out.println(seed);
+				
+				//release the blob and free up memory. (since JDBC 4.0)
+				blob.free();
+			
+			}
+			
+			selectAliceStmt.close();
+			
+			conn.close();
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} 
+	    
 	}
 
 	public boolean containsDID(String didNameToCheck) {

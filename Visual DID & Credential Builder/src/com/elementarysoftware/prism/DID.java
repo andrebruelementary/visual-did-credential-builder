@@ -1,13 +1,24 @@
 package com.elementarysoftware.prism;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.file.Paths;
+import java.sql.Blob;
+import java.sql.Clob;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Properties;
 import java.util.Vector;
 
 import javax.xml.XMLConstants;
@@ -41,6 +52,7 @@ public class DID {
 	private String name;
 	private String seedFilePath;
 	private String metadataFilePath;
+	private String vaultDbUrl;
 
 
 	public static final int STATUS_UNPUBLISHED = 1;
@@ -48,37 +60,137 @@ public class DID {
 
 
 
-	public DID(String n, String metaPath, String seedPath) {
+	public DID(String n, String vaultUrl) {
 		super();
 		name = n;
-		metadataFilePath = metaPath;
-		seedFilePath = seedPath;
-		contacts = readContactsFromMetadataFile();
+		//metadataFilePath = metaPath;
+		//seedFilePath = seedPath;
+		vaultDbUrl = vaultUrl;
+		//contacts = readContactsFromMetadataFile();
+		contacts = readContactsFromVault();
+	}
+	
+	private String clobToString(Clob data) {
+	    StringBuilder sb = new StringBuilder();
+	    try {
+	        Reader reader = data.getCharacterStream();
+	        BufferedReader br = new BufferedReader(reader);
+
+	        String line;
+	        while(null != (line = br.readLine())) {
+	            sb.append(line);
+	        }
+	        br.close();
+	    } catch (SQLException e) {
+	        // handle this exception
+	    } catch (IOException e) {
+	        // handle this exception
+	    }
+	    return sb.toString();
+	}
+
+	private HashMap<String, Contact> readContactsFromVault() {
+		HashMap<String,Contact> tmpContacts = new HashMap<String,Contact>();
+		String protocol = "jdbc:derby:";
+
+		Properties props = new Properties(); 
+		props.put("user", name);
+		props.put("password", "password");
+
+		Connection conn;
+		try {
+			conn = DriverManager.getConnection(protocol + "./vaults/"+name, props);
+			
+			System.out.println("readContactsFromDatabase: query "+ name);
+			String selectQuery = "SELECT * FROM contact";
+			try {
+				Statement fetchSeedStmt = conn.createStatement();
+				
+				ResultSet rs = fetchSeedStmt.executeQuery(selectQuery);
+				
+				while(rs.next()) {
+					
+					String name = rs.getString("name");
+					Clob didString = rs.getClob("did_string");
+					
+					tmpContacts.put(name, new Contact(clobToString(didString),name));
+					
+					//release the clob and free up memory. (since JDBC 4.0)
+					didString.free();
+				}
+				
+				fetchSeedStmt.close();
+				
+				conn.close();
+			} catch (SQLException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} 
+			
+		} catch (SQLException e1) {
+			e1.printStackTrace();
+		}
+		
+		return tmpContacts;
 	}
 
 	public String getName() {
 		return name;
 	}
 
-	public byte[] getSeed() throws FileNotFoundException, IOException {
+	public byte[] getSeed() {
 
-		/*System.out.println("getSeed()");
-		File directory = new File("./did_vault");
-
-
-		System.out.println("absolute directory path "+ directory.getAbsolutePath());
-		String[] filelist = directory.list();
-		for(int i = 0; i < filelist.length; i++) {
-			System.out.println(filelist[i]);
-		}*/
-
-		File file = new File("./did_vault/"+ seedFilePath);
+		/*File file = new File("./did_vault/"+ seedFilePath);
 		byte[] bytes = new byte[(int) file.length()];
 
 		try(FileInputStream fis = new FileInputStream(file)){
 			fis.read(bytes);
 			return bytes;
+		}*/
+		byte[] seed = new byte[0];
+		String protocol = "jdbc:derby:";
+
+		Properties props = new Properties(); 
+		props.put("user", name);
+		props.put("password", "password");
+
+		Connection conn;
+		try {
+			conn = DriverManager.getConnection(protocol + "./vaults/"+name, props);
+			
+			System.out.println("getSeed: query "+ name);
+			String selectQuery = "SELECT * FROM did WHERE name LIKE '"+name+"'";
+			try {
+				Statement fetchSeedStmt = conn.createStatement();
+				
+				ResultSet rs = fetchSeedStmt.executeQuery(selectQuery);
+				
+				rs.next();
+				System.out.println("name = "+ rs.getString("name"));
+					
+				Blob blob = rs.getBlob("seed");
+
+				int blobLength = (int) blob.length();
+				System.out.println("length of seed "+ blobLength);
+				seed = blob.getBytes(1, blobLength);
+		
+				//release the blob and free up memory. (since JDBC 4.0)
+				blob.free();
+				
+				fetchSeedStmt.close();
+				
+				conn.close();
+			} catch (SQLException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} 
+			
+		} catch (SQLException e1) {
+			e1.printStackTrace();
 		}
+		
+		return seed;
+		
 	}
 
 	public String getSeedFilePath() {
@@ -89,66 +201,46 @@ public class DID {
 	public int getStatus() {
 
 
-		try {
-			//			val seed = File(seedFile).readBytes()
-			//		    println("read seed from file $seedFile")
-			byte[] seed = getSeed();
+		//			val seed = File(seedFile).readBytes()
+		//		    println("read seed from file $seedFile")
+		byte[] seed = getSeed();
 
-			//		    val masterKeyPair = KeyGenerator.deriveKeyFromFullPath(seed, 0, PrismKeyType.MASTER_KEY, 0)
-			KeyGenerator keygen = KeyGenerator.INSTANCE;
-			ECKeyPair masterKeyPair = keygen.deriveKeyFromFullPath(seed, 0, PrismKeyType.INSTANCE.getMASTER_KEY(), 0);
+		//		    val masterKeyPair = KeyGenerator.deriveKeyFromFullPath(seed, 0, PrismKeyType.MASTER_KEY, 0)
+		KeyGenerator keygen = KeyGenerator.INSTANCE;
+		ECKeyPair masterKeyPair = keygen.deriveKeyFromFullPath(seed, 0, PrismKeyType.INSTANCE.getMASTER_KEY(), 0);
 
-			//		    val unpublishedDid = PrismDid.buildLongFormFromMasterPublicKey(masterKeyPair.publicKey)
-			LongFormPrismDid unpublishedDid = PrismDid.buildLongFormFromMasterPublicKey(masterKeyPair.getPublicKey());
+		//		    val unpublishedDid = PrismDid.buildLongFormFromMasterPublicKey(masterKeyPair.publicKey)
+		LongFormPrismDid unpublishedDid = PrismDid.buildLongFormFromMasterPublicKey(masterKeyPair.getPublicKey());
 
-			//		    val didCanonical = unpublishedDid.asCanonical().did
-			//		    val didLongForm = unpublishedDid.did
-			Did didCanonical = unpublishedDid.asCanonical().getDid();
-			Did didLongForm = unpublishedDid.getDid();
+		//		    val didCanonical = unpublishedDid.asCanonical().did
+		//		    val didLongForm = unpublishedDid.did
+		Did didCanonical = unpublishedDid.asCanonical().getDid();
+		Did didLongForm = unpublishedDid.getDid();
 
-			//PrismDid prismDid = PrismDid.fromDid(didCanonical);
-			//
-			//		    println("canonical: $didCanonical")
-			//		    println("long form: $didLongForm")
+		//PrismDid prismDid = PrismDid.fromDid(didCanonical);
+		//
+		//		    println("canonical: $didCanonical")
+		//		    println("long form: $didLongForm")
 
-			System.out.println("canonical: "+ didCanonical);
-			System.out.println("long form: "+ didLongForm);
+		System.out.println("canonical: "+ didCanonical);
+		System.out.println("long form: "+ didLongForm);
 
-			PrismDidDataModel model_canonical_form = PrismNodeDidDocumentAction.Companion.getDidDocument(didCanonical.toString());
-			if(model_canonical_form != null) {
-				System.out.println(model_canonical_form.getPublicKeys().length);
-				System.out.println(model_canonical_form.getDidDataModel().toString());
-				return STATUS_PUBLISHED;
+		PrismDidDataModel model_canonical_form = PrismNodeDidDocumentAction.Companion.getDidDocument(didCanonical.toString());
+		if(model_canonical_form != null) {
+			System.out.println(model_canonical_form.getPublicKeys().length);
+			System.out.println(model_canonical_form.getDidDataModel().toString());
+			return STATUS_PUBLISHED;
+		}
+		else {
+			//System.out.println("No model returned from Canonical DID...");
+			PrismDidDataModel model_long_form = PrismNodeDidDocumentAction.Companion.getDidDocument(didLongForm.toString());
+			if(model_long_form != null) {
+				System.out.println(model_long_form.getPublicKeys().length);
+				System.out.println(model_long_form.getDidDataModel().toString());
 			}
 			else {
-				//System.out.println("No model returned from Canonical DID...");
-				PrismDidDataModel model_long_form = PrismNodeDidDocumentAction.Companion.getDidDocument(didLongForm.toString());
-				if(model_long_form != null) {
-					System.out.println(model_long_form.getPublicKeys().length);
-					System.out.println(model_long_form.getDidDataModel().toString());
-				}
-				else {
-					System.out.println("No model returned from long form DID...");
-				}
+				System.out.println("No model returned from long form DID...");
 			}
-
-			//GrpcOptions env_settings = new GrpcOptions("https", "ppp.atalaprism.io",50053);
-			//NodePublicApiImpl nodeAPI = new NodePublicApiImpl(env_settings);
-
-			//Continuation<PrismDidDataModel> model = (Continuation<PrismDidDataModel>) nodeAPI.getDidDocument(prismDid,model);
-			/*nodeAPI.getDidDocument(prismDid, Continuation<PrismDidDataModel> {
-
-			});*/
-
-			//Continuation<? super PrismDidDataModel> model = new PrismDidDataModel();
-			//Object o = nodeAPI.getDidDocument(prismDid, model);
-
-
-
-
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
 		}
 
 
@@ -159,31 +251,25 @@ public class DID {
 
 	public PrismDidDataModel getDataModel() {
 
-		try {
-			byte[] seed = getSeed();
+		byte[] seed = getSeed();
 
-			KeyGenerator keygen = KeyGenerator.INSTANCE;
-			ECKeyPair masterKeyPair = keygen.deriveKeyFromFullPath(seed, 0, PrismKeyType.INSTANCE.getMASTER_KEY(), 0);
+		KeyGenerator keygen = KeyGenerator.INSTANCE;
+		ECKeyPair masterKeyPair = keygen.deriveKeyFromFullPath(seed, 0, PrismKeyType.INSTANCE.getMASTER_KEY(), 0);
 
-			LongFormPrismDid unpublishedDid = PrismDid.buildLongFormFromMasterPublicKey(masterKeyPair.getPublicKey());
+		LongFormPrismDid unpublishedDid = PrismDid.buildLongFormFromMasterPublicKey(masterKeyPair.getPublicKey());
 
-			Did didCanonical = unpublishedDid.asCanonical().getDid();
-			Did didLongForm = unpublishedDid.getDid();
+		Did didCanonical = unpublishedDid.asCanonical().getDid();
+		Did didLongForm = unpublishedDid.getDid();
 
-			PrismDidDataModel model = PrismNodeDidDocumentAction.Companion.getDidDocument(didCanonical.toString());
+		PrismDidDataModel model = PrismNodeDidDocumentAction.Companion.getDidDocument(didCanonical.toString());
+		if(model != null) {
+			return model;
+		}
+		else {
+			model = PrismNodeDidDocumentAction.Companion.getDidDocument(didLongForm.toString());
 			if(model != null) {
 				return model;
 			}
-			else {
-				model = PrismNodeDidDocumentAction.Companion.getDidDocument(didLongForm.toString());
-				if(model != null) {
-					return model;
-				}
-			}
-
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
 		}
 
 		return null;
@@ -319,7 +405,6 @@ public class DID {
 			e.printStackTrace();
 		}
 
-
 		return tmpContacts;
 
 	}
@@ -395,13 +480,47 @@ public class DID {
 		}
 		
 		Contact c = new Contact(did, name);
-		addContactToMetadataFile(c);
+		//addContactToMetadataFile(c);
+		addContactToVault(c);
 		
 		contacts.put(name, c);
 		return true;
 		
 	}
 	
+	private void addContactToVault(Contact c) {
+		
+		String protocol = "jdbc:derby:";
+
+		Properties props = new Properties(); 
+		props.put("user", name);
+		props.put("password", "password");
+
+		Connection conn;
+		
+		String query = "INSERT INTO contact(name,did_string) VALUES (?, ?)";
+	    PreparedStatement pstmt;
+		try {
+			
+			conn = DriverManager.getConnection(protocol + "./vaults/"+name, props);
+		
+			pstmt = conn.prepareStatement(query);
+			pstmt.setString(1, c.getName());
+		    Clob didString = conn.createClob();
+		    didString.setString(1, c.getDIDString());
+		    pstmt.setClob(2, didString);
+		    pstmt.execute();
+		    System.out.println("Added contact "+ c.getName() +" to vault");
+		    didString.free();
+		    pstmt.close();
+		     
+		    conn.close();
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
 	public boolean addContact(String didString, String name) {
 		return addContact(PrismDid.fromString(didString), name);
 	}

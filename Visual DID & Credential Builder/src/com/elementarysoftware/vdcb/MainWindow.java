@@ -1,7 +1,12 @@
 package com.elementarysoftware.vdcb;
 
+import java.io.FileNotFoundException;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Properties;
 
 import org.eclipse.jface.dialogs.IInputValidator;
 import org.eclipse.jface.dialogs.InputDialog;
@@ -118,7 +123,7 @@ public class MainWindow {
 
 	}
 
-	protected void openDIDProperyPage() {
+	protected void openDIDPropertyPage() {
 
 		Shell propertyShell = new Shell();
 		DIDPropertyPage didDialog = new DIDPropertyPage(propertyShell, loadedDID);
@@ -214,7 +219,7 @@ public class MainWindow {
 			}
 		});
 		btnSelectDid.setBounds(281, 103, 159, 27);
-		btnSelectDid.setText("Create / Select DID");
+		btnSelectDid.setText("Select or Create DID");
 
 		/*
 		 * btnPublishDid = new Button(shlVisualDid, SWT.NONE);
@@ -248,12 +253,13 @@ public class MainWindow {
 		btnViewDid.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
-				openDIDProperyPage();
+				openDIDPropertyPage();
 			}
 		});
 		btnViewDid.setBounds(281, 136, 159, 27);
 		btnViewDid.setText("DID Actions");
 		
+		/*
 		Button btnCreateVaultDatabasePOC = new Button(shlVisualDid, SWT.NONE);
 		btnCreateVaultDatabasePOC.addSelectionListener(new SelectionAdapter() {
 			@Override
@@ -264,7 +270,7 @@ public class MainWindow {
 			}
 		});
 		btnCreateVaultDatabasePOC.setBounds(281, 169, 159, 27);
-		btnCreateVaultDatabasePOC.setText("Create Vault POC");
+		btnCreateVaultDatabasePOC.setText("Create Vault POC");*/
 
 		// Combo combo = new Combo(shlVisualDid, SWT.NONE);
 		// final ComboViewer combo = new ComboViewer(shlVisualDid, SWT.NONE);

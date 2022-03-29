@@ -3,3 +3,4 @@
 /backup/*
 derby.log
 /vaults/*
+.DS_Store
