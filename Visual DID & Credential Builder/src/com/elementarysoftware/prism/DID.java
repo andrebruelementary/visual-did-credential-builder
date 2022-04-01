@@ -35,6 +35,8 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
 import com.elementarysoftware.io.FileOperations;
+import com.elementarysoftware.vdcb.Session;
+import com.elementarysoftware.vdcb.Settings;
 
 import getDidDocument.PrismNodeDidDocumentAction;
 import io.iohk.atala.prism.api.KeyGenerator;
@@ -47,27 +49,15 @@ import io.iohk.atala.prism.identity.PrismKeyType;
 
 public class DID {
 
-	protected HashMap<String, Contact> contacts;
-
 	private String name;
-	private String seedFilePath;
-	private String metadataFilePath;
-	private String vaultDbUrl;
-
-
+	private Settings settings;
+	
 	public static final int STATUS_UNPUBLISHED = 1;
 	public static final int STATUS_PUBLISHED = 2;
 
-
-
-	public DID(String n, String vaultUrl) {
-		super();
+	public DID(String n, Settings s) {
 		name = n;
-		//metadataFilePath = metaPath;
-		//seedFilePath = seedPath;
-		vaultDbUrl = vaultUrl;
-		//contacts = readContactsFromMetadataFile();
-		contacts = readContactsFromVault();
+		settings = s;
 	}
 	
 	private String clobToString(Clob data) {
@@ -88,18 +78,17 @@ public class DID {
 	    }
 	    return sb.toString();
 	}
-
+	
+	
 	private HashMap<String, Contact> readContactsFromVault() {
 		HashMap<String,Contact> tmpContacts = new HashMap<String,Contact>();
-		String protocol = "jdbc:derby:";
-
-		Properties props = new Properties(); 
-		props.put("user", name);
-		props.put("password", "password");
-
+		
+		Properties props = (Properties) settings.get(Session.VAULT_PROPERTIES); 
+		String vaultURL = (String) settings.get(Session.VAULT_JDBC_URL);
+		
 		Connection conn;
 		try {
-			conn = DriverManager.getConnection(protocol + "./vaults/"+name, props);
+			conn = DriverManager.getConnection(vaultURL, props);
 			
 			System.out.println("readContactsFromDatabase: query "+ name);
 			String selectQuery = "SELECT * FROM contact";
@@ -113,7 +102,7 @@ public class DID {
 					String name = rs.getString("name");
 					Clob didString = rs.getClob("did_string");
 					
-					tmpContacts.put(name, new Contact(clobToString(didString),name));
+					tmpContacts.put(name, new Contact(clobToString(didString),name, settings));
 					
 					//release the clob and free up memory. (since JDBC 4.0)
 					didString.free();
@@ -140,23 +129,13 @@ public class DID {
 
 	public byte[] getSeed() {
 
-		/*File file = new File("./did_vault/"+ seedFilePath);
-		byte[] bytes = new byte[(int) file.length()];
-
-		try(FileInputStream fis = new FileInputStream(file)){
-			fis.read(bytes);
-			return bytes;
-		}*/
 		byte[] seed = new byte[0];
-		String protocol = "jdbc:derby:";
-
-		Properties props = new Properties(); 
-		props.put("user", name);
-		props.put("password", "password");
-
+		Properties props = (Properties) settings.get(Session.VAULT_PROPERTIES); 
+		String vaultURL = (String) settings.get(Session.VAULT_JDBC_URL);
+		System.out.println("getSeed, vault jdbc url = "+ vaultURL);
 		Connection conn;
 		try {
-			conn = DriverManager.getConnection(protocol + "./vaults/"+name, props);
+			conn = DriverManager.getConnection(vaultURL, props);
 			
 			System.out.println("getSeed: query "+ name);
 			String selectQuery = "SELECT * FROM did WHERE name LIKE '"+name+"'";
@@ -193,10 +172,11 @@ public class DID {
 		
 	}
 
+	/*
 	public String getSeedFilePath() {
 
 		return seedFilePath;
-	}
+	}*/
 
 	public int getStatus() {
 
@@ -274,258 +254,103 @@ public class DID {
 
 		return null;
 	}
-
+	
 	public String getLatestOperationHash() {
-
-		// Instantiate the Factory
-		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-		try {
-			// optional, but recommended
-			// process XML securely, avoid attacks like XML External Entities (XXE)
-			dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-
-			// parse XML file
-			DocumentBuilder db = dbf.newDocumentBuilder();
-
-			Document doc = db.parse(new File(metadataFilePath));
-			doc.getDocumentElement().normalize();
-
-			Node xml_did = doc.getElementsByTagName("did").item(0);
-			Element elem_did = (Element) xml_did;
-
-			return elem_did.getAttribute("latestOperationHash");
-
-		}
-		catch (SAXException saxe) {
-			System.err.println("Error reading DID settings. "+ saxe.getMessage());
-		}
-		catch (ParserConfigurationException pce) {
-			System.err.println("Error reading DIDs. "+ pce.getMessage());
-		}
-		catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-
-		return null;
-
-	}
-
-	public void setLatestOperationHash(String operationHash) {
-
-		// Instantiate the Factory
-		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-		try {
-			// optional, but recommended
-			// process XML securely, avoid attacks like XML External Entities (XXE)
-			dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-
-			// parse XML file
-			DocumentBuilder db = dbf.newDocumentBuilder();
-
-			Document doc = db.parse(new File(metadataFilePath));
-			doc.getDocumentElement().normalize();
-
-			Node xml_did = doc.getElementsByTagName("did").item(0);
-
-			NamedNodeMap attr = xml_did.getAttributes();
-			Node oprHashAttr = attr.getNamedItem("latestOperationHash");
-
-			if(oprHashAttr != null) {
-				System.out.println("latestOperationHash before change: "+oprHashAttr.getTextContent());
-				oprHashAttr.setTextContent(operationHash);
-				System.out.println("latestOperationHash after change: "+oprHashAttr.getTextContent());
-			}
-			else {
-				Element elem_did = (Element) xml_did;
-				elem_did.setAttribute("latestOperationHash", operationHash);
-			}
-
-			// write DOM document to a file
-			try (FileOutputStream output =
-					new FileOutputStream(metadataFilePath)) {
-				FileOperations.writeXml(doc, output);
-			} catch (IOException e) {
-				e.printStackTrace();
-			} catch (TransformerException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-
-		}
-		catch (SAXException saxe) {
-			System.err.println("Error reading DID settings. "+ saxe.getMessage());
-		}
-		catch (ParserConfigurationException pce) {
-			System.err.println("Error reading DIDs. "+ pce.getMessage());
-		}
-		catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-
-
-	}
 	
-	private HashMap<String, Contact> readContactsFromMetadataFile() {
-
-		HashMap<String,Contact> tmpContacts = new HashMap<String,Contact>();
+		String latestOpHash = "";
+		Properties props = (Properties) settings.get(Session.VAULT_PROPERTIES); 
+		String vaultURL = (String) settings.get(Session.VAULT_JDBC_URL);
+		System.out.println("DID.getLatestOperationHash, vault jdbc url = "+ vaultURL);
+		Connection conn;
+		try {
+			conn = DriverManager.getConnection(vaultURL, props);
+			
+			System.out.println("DID.getLatestOperationHash: query "+ name);
+			String selectQuery = "SELECT latest_operation_hash FROM did WHERE name LIKE '"+name+"'";
+			try {
+				Statement fetchStmt = conn.createStatement();
+				
+				ResultSet rs = fetchStmt.executeQuery(selectQuery);
+				
+				if(!rs.next()) return "";
+					
+				latestOpHash = rs.getString(1);
+				fetchStmt.close();
+				
+				conn.close();
+			} catch (SQLException e) {
+				e.printStackTrace();
+			} 
+			
+		} catch (SQLException e1) {
+			e1.printStackTrace();
+		}
 		
-		// Instantiate the Factory
-		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+		return latestOpHash;
+		
+	}
+
+	
+	public void setLatestOperationHash(String operationHash) {
+		
+		Properties props = (Properties) settings.get(Session.VAULT_PROPERTIES); 
+		String vaultURL = (String) settings.get(Session.VAULT_JDBC_URL);
+		System.out.println("DID.setLatestOperationHash, vault jdbc url = "+ vaultURL);
+		Connection conn;
 		try {
-			// optional, but recommended
-			// process XML securely, avoid attacks like XML External Entities (XXE)
-			dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-
-			// parse XML file
-			DocumentBuilder db = dbf.newDocumentBuilder();
-
-			Document doc = db.parse(new File(metadataFilePath));
-			doc.getDocumentElement().normalize();
-
-			NodeList xml_contacts = doc.getElementsByTagName("contact");
-			for(int i = 0; i < xml_contacts.getLength(); i++) {
-				
-				Node contactNode = xml_contacts.item(i);
-				Node nameAttribute = contactNode.getAttributes().getNamedItem("name");
-				Node didStringAttribute = contactNode.getAttributes().getNamedItem("didstring");
-				
-				tmpContacts.put(nameAttribute.getNodeValue(), new Contact(didStringAttribute.getNodeValue(),nameAttribute.getNodeValue()));
-			}
+			conn = DriverManager.getConnection(vaultURL, props);
 			
+			System.out.println("DID.setLatestOperationHash: query "+ name);
+			String selectQuery = "SELECT * FROM did WHERE name LIKE '"+name+"'";
+			try {
+				Statement fetchStmt = conn.createStatement(ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+				
+				ResultSet rs = fetchStmt.executeQuery(selectQuery);
+				
+				rs.next();
+					
+				rs.updateString("latest_operation_hash", operationHash);
+				rs.updateRow();
+				
+				fetchStmt.close();
+				
+				conn.close();
+			} catch (SQLException e) {
+				e.printStackTrace();
+			} 
+			
+		} catch (SQLException e1) {
+			e1.printStackTrace();
 		}
-		catch (SAXException saxe) {
-			System.err.println("Error reading DID settings. "+ saxe.getMessage());
-		}
-		catch (ParserConfigurationException pce) {
-			System.err.println("Error reading DIDs. "+ pce.getMessage());
-		}
-		catch (IOException e) {
-			e.printStackTrace();
-		}
-
-		return tmpContacts;
-
+		
 	}
 	
-	private void addContactToMetadataFile(Contact c) {
-
-		// Instantiate the Factory
-		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-		try {
-			// optional, but recommended
-			// process XML securely, avoid attacks like XML External Entities (XXE)
-			dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-
-			// parse XML file
-			DocumentBuilder db = dbf.newDocumentBuilder();
-
-			Document doc = db.parse(new File(metadataFilePath));
-			doc.getDocumentElement().normalize();
-
-			Node xml_did = doc.getElementsByTagName("did").item(0);
-			
-			NodeList xml_contacts = doc.getElementsByTagName("contacts");
-			Node contacts_node;
-			if(xml_contacts.getLength() == 0) {
-				// contacts node not presently in xml file...add it
-				Element contactsElement = doc.createElement("contacts");
-				contacts_node = xml_did.appendChild(contactsElement);
-			}
-			else {
-				contacts_node = xml_contacts.item(0);
-			}
-			
-			Element contactElement = doc.createElement("contact");
-			contactElement.setAttribute("name", c.getName());
-			contactElement.appendChild(doc.createTextNode(c.getDIDString()));
-			
-			contacts_node.appendChild(contactElement);
-			
-			// write DOM document to a file
-			try (FileOutputStream output =
-					new FileOutputStream(metadataFilePath)) {
-				FileOperations.writeXml(doc, output);
-			} catch (IOException e) {
-				e.printStackTrace();
-			} catch (TransformerException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-
-		}
-		catch (SAXException saxe) {
-			System.err.println("Error reading DID settings. "+ saxe.getMessage());
-		}
-		catch (ParserConfigurationException pce) {
-			System.err.println("Error reading DIDs. "+ pce.getMessage());
-		}
-		catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-
-
-	}
-	
-
 	public String getLogFilePath() {
-		return metadataFilePath +".log";
+		return "null.log";
 	}
 	
 	public boolean addContact(PrismDid did, String name) {
+		
+		HashMap<String,Contact> contacts = readContactsFromVault();
 		if(contacts.containsKey(name)) {
 			return false;
 		}
 		
-		Contact c = new Contact(did, name);
-		//addContactToMetadataFile(c);
-		addContactToVault(c);
+		Contact c = new Contact(did, name, settings);
+		
+		c.addContactToVault();
 		
 		contacts.put(name, c);
 		return true;
 		
 	}
 	
-	private void addContactToVault(Contact c) {
-		
-		String protocol = "jdbc:derby:";
-
-		Properties props = new Properties(); 
-		props.put("user", name);
-		props.put("password", "password");
-
-		Connection conn;
-		
-		String query = "INSERT INTO contact(name,did_string) VALUES (?, ?)";
-	    PreparedStatement pstmt;
-		try {
-			
-			conn = DriverManager.getConnection(protocol + "./vaults/"+name, props);
-		
-			pstmt = conn.prepareStatement(query);
-			pstmt.setString(1, c.getName());
-		    Clob didString = conn.createClob();
-		    didString.setString(1, c.getDIDString());
-		    pstmt.setClob(2, didString);
-		    pstmt.execute();
-		    System.out.println("Added contact "+ c.getName() +" to vault");
-		    didString.free();
-		    pstmt.close();
-		     
-		    conn.close();
-		} catch (SQLException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-	}
-
 	public boolean addContact(String didString, String name) {
 		return addContact(PrismDid.fromString(didString), name);
 	}
 	
 	public boolean hasContact(String name) {
+		HashMap<String,Contact> contacts = readContactsFromVault();
 		if(contacts != null) {
 			return contacts.containsKey(name);
 		}
@@ -533,100 +358,62 @@ public class DID {
 	}
 	
 	public Contact getContact(String name) {
+		HashMap<String,Contact> contacts = readContactsFromVault();
 		return contacts.get(name);
 	}
 	
 	public HashMap<String,Contact> getContacts() {
+		HashMap<String,Contact> contacts = readContactsFromVault();
 		return contacts;
 	}
 	
 	public void removeContact() {
-		
+		//TODO: write code to remove from database vault
 	}
-
+	
 	public Batch[] getCredentialBatches() {
 		
 		List<Batch> tmpBatches = new Vector<Batch>();
+		Properties props = (Properties) settings.get(Session.VAULT_PROPERTIES); 
+		String vaultURL = (String) settings.get(Session.VAULT_JDBC_URL);
 		
-		// Instantiate the Factory
-		DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+		Connection conn;
 		try {
-			// optional, but recommended
-			// process XML securely, avoid attacks like XML External Entities (XXE)
-			dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-
-			// parse XML file
-			DocumentBuilder db = dbf.newDocumentBuilder();
-			DocumentBuilder batchDb = dbf.newDocumentBuilder();
-
-			System.out.println("reading "+ metadataFilePath);
+			conn = DriverManager.getConnection(vaultURL, props);
 			
-			Document doc = db.parse(new File(metadataFilePath));
-			doc.getDocumentElement().normalize();
+			System.out.println("getCredentialBatches");
 			
-			Node xml_did = doc.getElementsByTagName("did").item(0);
-
-			Node xml_history_folder_name = ((Element) xml_did).getElementsByTagName("history").item(0);
-			
-			System.out.println("folder with batches "+ xml_history_folder_name.getTextContent());
-			
-			// loop through vault and get name of all dids
-			List<String> files;
-			files = FileOperations.findFiles(Paths.get(new File("did_vault/"+xml_history_folder_name.getTextContent()).getAbsolutePath()), "xml");
-
-			for(int i = 0; i < files.size(); i++) {
-				System.out.println("reading file "+ files.get(i));
-				Document batchXMLDoc = batchDb.parse(new File(files.get(i)));
-				batchXMLDoc.getDocumentElement().normalize();
+			String selectQuery = "SELECT * FROM batch";
+			try {
+				Statement fetchBatchStmt = conn.createStatement();
 				
-				Node xml_batch = batchXMLDoc.getElementsByTagName("batch").item(0);
+				ResultSet rs = fetchBatchStmt.executeQuery(selectQuery);
 				
-				Node batchIDAttribute = xml_batch.getAttributes().getNamedItem("id");
-				Node batchOpHashAttribute = xml_batch.getAttributes().getNamedItem("latestOperationHash");
-				Batch batch = new Batch(batchIDAttribute.getNodeValue(), batchOpHashAttribute.getNodeValue());
-				
-				NodeList xml_credential_list = ((Element)xml_batch).getElementsByTagName("credential");
-				for(int j = 0; j < xml_credential_list.getLength(); j++) {
-					
-					NamedNodeMap credentialAttributes = xml_credential_list.item(j).getAttributes();
-					Credential credential = new Credential(credentialAttributes.getNamedItem("holdername").getNodeValue());
-					
-					if(credentialAttributes.getNamedItem("hash") != null) {
-						credential.setHash(credentialAttributes.getNamedItem("hash").getNodeValue());
-					}
-					
-					if(credentialAttributes.getNamedItem("txid") != null) {
-						credential.setTxId(credentialAttributes.getNamedItem("txid").getNodeValue());
-					}
-					
-					if(credentialAttributes.getNamedItem("network") != null) {
-						credential.setNetwork(credentialAttributes.getNamedItem("network").getNodeValue());
-					}
-					
-					credential.setPartOfBatch(batch);
-					batch.addCredential(credential);
-					
-					
+				while(rs.next()) {
+					/*
+					 * column 1: batch id
+					 * column 2: latest batch operation hash
+					 */
+					tmpBatches.add(new Batch(rs.getString(1), rs.getString(2), Batch.WITH_CREDENTIALS, settings));
 				}
+				fetchBatchStmt.close();
 				
-				tmpBatches.add(batch);
-
-			}
+				conn.close();
+			} catch (SQLException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} 
 			
+		} catch (SQLException e1) {
+			e1.printStackTrace();
 		}
-		catch (SAXException saxe) {
-			System.err.println("Error reading Batch settings. "+ saxe.getMessage());
-		}
-		catch (ParserConfigurationException pce) {
-			System.err.println("Error reading Batches. "+ pce.getMessage());
-		}
-		catch (IOException e) {
-			e.printStackTrace();
-		}
-
-
+		
 		return tmpBatches.toArray(Batch[]::new);
 		
+	}
+
+	public void updateSettings(Settings s) {
+		settings = s;
 	}
 
 }

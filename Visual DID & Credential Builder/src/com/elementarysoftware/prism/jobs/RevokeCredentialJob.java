@@ -15,6 +15,8 @@ import org.json.simple.JSONObject;
 import com.elementarysoftware.prism.Batch;
 import com.elementarysoftware.prism.Credential;
 import com.elementarysoftware.prism.DID;
+import com.elementarysoftware.vdcb.Session;
+import com.elementarysoftware.vdcb.Settings;
 
 import io.iohk.atala.prism.api.CredentialClaim;
 import io.iohk.atala.prism.api.KeyGenerator;
@@ -46,13 +48,15 @@ import kotlinx.serialization.json.JsonObject;
 public class RevokeCredentialJob implements Runnable {
 
 	private DID issuerDID;
+	private Settings settings;
 	private List itemsToRevokeList;
 
 	// private DIDKeyInfo[] keysToAdd;
 	// private String[] keysToRevoke;
 
-	public RevokeCredentialJob(DID d, List itemsToRevoke) {
-		issuerDID = d;
+	public RevokeCredentialJob(Settings s, List itemsToRevoke) {
+		settings = s;
+		issuerDID = (DID) settings.get(Session.CURRENT_DID);
 		itemsToRevokeList = itemsToRevoke;
 	}
 
@@ -62,9 +66,11 @@ public class RevokeCredentialJob implements Runnable {
 
 			KeyGenerator keygen = KeyGenerator.INSTANCE;
 			
-			ECKeyPair issuerMasterKeyPair = keygen.deriveKeyFromFullPath(issuerDID.getSeed(), 0,
+			byte[] seed = ((DID)settings.get(Session.CURRENT_DID)).getSeed();
+			
+			ECKeyPair issuerMasterKeyPair = keygen.deriveKeyFromFullPath(seed, 0,
 					PrismKeyType.INSTANCE.getMASTER_KEY(), 0);
-			ECKeyPair issuerRevocationKeyPair = keygen.deriveKeyFromFullPath(issuerDID.getSeed(), 0,
+			ECKeyPair issuerRevocationKeyPair = keygen.deriveKeyFromFullPath(seed, 0,
 					PrismKeyType.INSTANCE.getREVOCATION_KEY(), 1);
 
 			
@@ -95,10 +101,9 @@ public class RevokeCredentialJob implements Runnable {
 				return;
 			}
 			
-			//String credBatchId = "8b76daa46fcd1b24273f77fa2a9d584920cb646c88dbe41c299352de076752cd";
-			//String latestCredBatchOperationHash = "fad70010dab41fbb411e72f0ab9ae49cea8a49cc853438fd6949bded2e8a046f";
-			
 			Sha256Digest latestCredentialBatchOpHash = Sha256Digest.fromHex(latestOpHash);
+			
+			System.out.println("batch latest op hash = "+ latestOpHash);
 			
 			List<Sha256Digest> credentialsToRevoke = new Vector<Sha256Digest>();
 			CredentialBatchId credentialBatchId = CredentialBatchId.fromString(batchId);
@@ -116,7 +121,7 @@ public class RevokeCredentialJob implements Runnable {
 			);
 			
 			// Creating a File object that represents the disk file. 
-			PrintStream o = new PrintStream(new FileOutputStream(issuerDID.getLogFilePath(), true), true);
+			PrintStream o = new PrintStream(new FileOutputStream("null.log", true), true);
 			
 			// Store current System.out before assigning a new value 
 			PrintStream console = System.out;
@@ -148,12 +153,12 @@ public class RevokeCredentialJob implements Runnable {
 			if(revoke instanceof Batch) {
 				batch = ((Batch) revoke);
 				batch.setLatestOperationHash(operationHash);
-				System.out.println("Operation hash after xml update " + issuerDID.getLatestOperationHash());
+				System.out.println("Operation hash after update " + batch.getLatestOperationHash());
 			}
 			else if(revoke instanceof Credential) {
 				batch = ((Credential) revoke).getBatch();
 				batch.setLatestOperationHash(operationHash);
-				System.out.println("Operation hash after xml update " + issuerDID.getLatestOperationHash());
+				System.out.println("Operation hash after update " + batch.getLatestOperationHash());
 			}
 		}
 		else {

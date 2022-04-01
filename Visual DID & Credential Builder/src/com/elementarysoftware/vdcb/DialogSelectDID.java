@@ -27,6 +27,7 @@ public class DialogSelectDID extends Dialog {
 	protected Object result;
 	protected Shell shell;
 	protected ListViewer listViewer;
+	private Settings settings;
 
 	/**
 	 * Create the dialog.
@@ -34,9 +35,10 @@ public class DialogSelectDID extends Dialog {
 	 * @param parent
 	 * @param style
 	 */
-	public DialogSelectDID(Shell parent, int style) {
+	public DialogSelectDID(Shell parent, int style, Settings s) {
 		super(parent, style);
 		setText("DID selector");
+		settings = s;
 	}
 
 	/**
@@ -67,7 +69,7 @@ public class DialogSelectDID extends Dialog {
 
 		DIDVault didVault;
 		try {
-			didVault = new DIDVault();
+			didVault = new DIDVault(settings);
 		} catch (FileNotFoundException e2) {
 			// TODO Auto-generated catch block
 			e2.printStackTrace();
@@ -83,7 +85,7 @@ public class DialogSelectDID extends Dialog {
 			public void widgetSelected(SelectionEvent e) {
 
 				Shell createDIDShell = new Shell();
-				CreateNewDIDDialog createDIDDialog = new CreateNewDIDDialog(createDIDShell);
+				CreateNewDIDDialog createDIDDialog = new CreateNewDIDDialog(createDIDShell, settings);
 				createDIDDialog.open();
 
 				DID createdDID = createDIDDialog.getCreatedDID();
@@ -106,7 +108,7 @@ public class DialogSelectDID extends Dialog {
 
 				DIDVault didVault;
 				try {
-					didVault = new DIDVault();
+					didVault = new DIDVault(settings);
 					int didIndex = listViewer.getList().getSelectionIndex();
 
 					if (didIndex == -1) {
@@ -133,7 +135,7 @@ public class DialogSelectDID extends Dialog {
 			public void widgetSelected(SelectionEvent e) {
 
 				Shell importDIDShell = new Shell();
-				RestoreDIDWithSeedPhraseDialog importDIDDialog = new RestoreDIDWithSeedPhraseDialog(importDIDShell);
+				RestoreDIDWithSeedPhraseDialog importDIDDialog = new RestoreDIDWithSeedPhraseDialog(importDIDShell, settings);
 				importDIDDialog.open();
 
 				DID restoredDID = importDIDDialog.getRestoredDID();
@@ -158,7 +160,7 @@ public class DialogSelectDID extends Dialog {
 
 		DIDVault didVault2;
 		try {
-			didVault2 = new DIDVault();
+			didVault2 = new DIDVault(settings);
 			listViewer.setInput(didVault2.getAllDIDs());
 		} catch (FileNotFoundException e2) {
 			e2.printStackTrace();

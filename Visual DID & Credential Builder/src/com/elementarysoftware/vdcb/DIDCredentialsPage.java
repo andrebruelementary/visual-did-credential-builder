@@ -34,16 +34,18 @@ import org.eclipse.swt.events.SelectionEvent;
 
 public class DIDCredentialsPage extends Dialog {
 
-	private DID did;
+	private DID currentDID;
+	private Settings settings;
 
 	/**
 	 * Create the dialog.
 	 * 
 	 * @param parentShell
 	 */
-	public DIDCredentialsPage(Shell credentialsShell, DID d) {
+	public DIDCredentialsPage(Shell credentialsShell, Settings s) {
 		super(credentialsShell);
-		did = d;
+		settings = s;
+		currentDID = (DID) settings.get(Session.CURRENT_DID);
 	}
 
 	/**
@@ -89,13 +91,13 @@ public class DIDCredentialsPage extends Dialog {
 				
 				if(credentialJson == null) return;
 				
-				SelectContactDialog contactSelection = new SelectContactDialog(getShell(), did.getContacts());
+				SelectContactDialog contactSelection = new SelectContactDialog(getShell(), currentDID.getContacts());
 				contactSelection.open();
 				Contact holderContact = contactSelection.getSelectedContact();
 				
 				if(holderContact == null) return;
 					
-				IssueCredentialJob job = new IssueCredentialJob(did,holderContact,credentialJson);
+				IssueCredentialJob job = new IssueCredentialJob(currentDID,holderContact,credentialJson,settings);
 				Thread t = new Thread(job);
 				t.start();
 				
@@ -113,7 +115,7 @@ public class DIDCredentialsPage extends Dialog {
 			public void widgetSelected(SelectionEvent e) {
 				System.out.println("**** revoke credential ****");
 				// load list of credential batches and credential hashes from history
-				SelectBatchOrCredentialDialog batchCredentialDlg = new SelectBatchOrCredentialDialog(getShell(),did);
+				SelectBatchOrCredentialDialog batchCredentialDlg = new SelectBatchOrCredentialDialog(getShell(),settings);
 				batchCredentialDlg.open();
 				
 				if(batchCredentialDlg.getReturnCode() == Window.OK) {
@@ -124,7 +126,7 @@ public class DIDCredentialsPage extends Dialog {
 						System.out.println(selectedForRevocation.get(i).getClass().toString());
 					}
 				
-					RevokeCredentialJob job = new RevokeCredentialJob(did, selectedForRevocation);
+					RevokeCredentialJob job = new RevokeCredentialJob(settings, selectedForRevocation);
 					Thread t = new Thread(job);
 					t.start();
 				}

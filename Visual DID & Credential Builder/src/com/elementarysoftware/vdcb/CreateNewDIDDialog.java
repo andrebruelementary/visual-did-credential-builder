@@ -32,14 +32,16 @@ public class CreateNewDIDDialog extends Dialog {
 	private Text tfDIDName;
 	private Text tfDIDPassphrase;
 	private DID createdDID;
+	private Settings settings;
 
 	/**
 	 * Create the dialog.
 	 * 
 	 * @param parentShell
 	 */
-	public CreateNewDIDDialog(Shell parentShell) {
+	public CreateNewDIDDialog(Shell parentShell, Settings s) {
 		super(parentShell);
+		settings = s;
 	}
 
 	public DID getCreatedDID() {
@@ -125,7 +127,7 @@ public class CreateNewDIDDialog extends Dialog {
 	protected void okPressed() {
 
 		try {
-			DIDVault didVault = new DIDVault();
+			DIDVault didVault = new DIDVault(settings);
 			
 			if(didVault.containsDID(tfDIDName.getText())) {
 				MessageDialog.openError(getShell(), "Name already in use",

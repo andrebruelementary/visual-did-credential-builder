@@ -31,16 +31,16 @@ import io.iohk.atala.prism.identity.PrismKeyType;
 
 public class DIDPropertyPage extends Dialog {
 
-	private DID did;
+	private DID currentDID;
 
 	/**
 	 * Create the dialog.
 	 * 
 	 * @param parentShell
 	 */
-	public DIDPropertyPage(Shell parentShell, DID d) {
+	public DIDPropertyPage(Shell parentShell, Settings settings) {
 		super(parentShell);
-		did = d;
+		currentDID = (DID) settings.get(Session.CURRENT_DID);
 	}
 
 	/**
@@ -60,7 +60,7 @@ public class DIDPropertyPage extends Dialog {
 
 		Button btnRevokeKey;
 
-		treeViewer.setContentProvider(new DIDDataModelTreeContentProvider(did));
+		treeViewer.setContentProvider(new DIDDataModelTreeContentProvider(currentDID));
 		treeViewer.setLabelProvider(new DIDDataModelTreeLabelProvider(parent.getDisplay()));
 		treeViewer.setInput("did");
 		treeViewer.refresh();
@@ -77,7 +77,7 @@ public class DIDPropertyPage extends Dialog {
 		btnPublishDid.addSelectionListener(new SelectionAdapter() {
 			@Override
 			public void widgetSelected(SelectionEvent e) {
-				PublishDIDJob job = new PublishDIDJob(did);
+				PublishDIDJob job = new PublishDIDJob(currentDID);
 				Thread t = new Thread(job);
 				t.start();
 			}
@@ -123,7 +123,7 @@ public class DIDPropertyPage extends Dialog {
 						if (MessageDialog.openConfirm(getParentShell(), "Confirm revokation of key",
 								"Revoking key cannot be undone. Please confirm that you want to revoke the key "
 										+ to.getName())) {
-							UpdateDIDJob job = new UpdateDIDJob(did);
+							UpdateDIDJob job = new UpdateDIDJob(currentDID);
 							job.keysToRevoke(new String[] { to.getName() });
 							Thread t = new Thread(job);
 							t.start();
@@ -180,11 +180,11 @@ public class DIDPropertyPage extends Dialog {
 		 * //newItem.setImage(img); } });
 		 */
 
-		if (new File(did.getLogFilePath()).exists()) {
+		if (new File(currentDID.getLogFilePath()).exists()) {
 			btnViewLog.setEnabled(true);
 		}
 
-		int published_status = did.getStatus();
+		int published_status = currentDID.getStatus();
 		if (published_status == DID.STATUS_PUBLISHED) {
 			btnAddKeyDid.setEnabled(true);
 
@@ -197,7 +197,7 @@ public class DIDPropertyPage extends Dialog {
 
 	protected void openAddKeyDialog() {
 		Shell dialogShell = new Shell();
-		AddKeyDialog addDialog = new AddKeyDialog(dialogShell, did);
+		AddKeyDialog addDialog = new AddKeyDialog(dialogShell, currentDID);
 		addDialog.open();
 	}
 
@@ -206,9 +206,9 @@ public class DIDPropertyPage extends Dialog {
 		try {
 			if (Desktop.isDesktopSupported()) {
 
-				if (new File(did.getLogFilePath()).exists()) {
+				if (new File(currentDID.getLogFilePath()).exists()) {
 					// Desktop.getDesktop().edit(new File(did.getLogFilePath()));
-					Desktop.getDesktop().open(new File(did.getLogFilePath()));
+					Desktop.getDesktop().open(new File(currentDID.getLogFilePath()));
 				} else {
 					MessageDialog.openInformation(getParentShell(), "No log file found",
 							"There is no log file for this DID. Please run some DID operations and try again");

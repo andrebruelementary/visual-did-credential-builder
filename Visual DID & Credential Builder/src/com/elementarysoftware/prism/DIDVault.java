@@ -23,6 +23,9 @@ import org.w3c.dom.Node;
 import org.xml.sax.SAXException;
 
 import com.elementarysoftware.io.FileOperations;
+import com.elementarysoftware.vdcb.Session;
+import com.elementarysoftware.vdcb.Settings;
+
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -44,17 +47,21 @@ public class DIDVault {
 	private File rootDbDirectory;
 	//List<String> didNames = new Vector<String>();
 	//List<String> didSeedFilePaths = new Vector<String>();
-	List<DID> dids = new Vector<DID>();
-	private String rootJDBCDirectoryPath = "jdbc:derby:./vaults/";
+	List<DID> dids; // = new Vector<DID>();
+	//private String rootJDBCDirectoryPath = "jdbc:derby:./vaults/";
+	private Settings settings;
 
-	public DIDVault() throws FileNotFoundException {
+	/*public DIDVault(Settings s) throws FileNotFoundException {
 
 		//this(new File("did_vault"));
-		this(new File("vaults"));
-	}
+		this(new File("vaults"), s);
+		
+	}*/
 
-	public DIDVault(File f) throws FileNotFoundException {
+	public DIDVault(Settings s) throws FileNotFoundException {
 
+		File f = new File((String)s.get(Settings.ROOT_DIRECTORY));
+		
 		if(f.isDirectory()) {
 			rootDbDirectory = f;
 			loadDIDs();
@@ -68,20 +75,8 @@ public class DIDVault {
 			}
 		}
 		
-		/*if(f.isDirectory()) {
-			rootDirectory = f;
-			loadDIDs();
-		}
-		else {
-			if(f.mkdirs()) {
-				rootDirectory = f;
-			}
-			else {
-				throw new FileNotFoundException("Unable to create DID Vault root directory");
-			}
-		}*/
 	}
-
+	
 	public DID restoreFromSeedPhrases(String name, List<String> seedPhrases, String passphrase) throws Exception {
 
 		MnemonicCode code = new MnemonicCode(seedPhrases);
@@ -102,6 +97,7 @@ public class DIDVault {
 		System.out.println("canonical: "+ didCanonical);
 		System.out.println("long form: "+ didLongForm);
 
+		/*
 		DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
 		DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
 
@@ -130,19 +126,26 @@ public class DIDVault {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-
-		String vaultUrl = createNewVault(name, name, passphrase, seed);
+		*/
 		
-		return new DID(name, vaultUrl);
+		settings.put(Session.CURRENT_DID, new DID(name, settings));
+		settings.put(Session.PASSPHRASE, passphrase);
+
+		createNewVault(name, seed);
+		
+		//return new DID(name, vaultUrl);
+		return new DID(name, settings);
 	}
 
 
 	private void loadDIDs() {
 
+		dids = new Vector<DID>();
+		
 		// loop through vault and get name of all dids
 		//List<String> files = new Vector<String>();
 		
-		System.out.println("Loading vaults");
+		System.out.println("Loading vaults from "+ rootDbDirectory);
 		// loop through the vaults directory and create did object for each of the database folders
 		String[] vaults = rootDbDirectory.list();
 		for(int i = 0; i < vaults.length; i++) {
@@ -150,7 +153,8 @@ public class DIDVault {
 			File tmpVault = new File(vaults[i]);
 			//if(tmpVault.isDirectory()) {
 			//	System.out.println("vault added "+ vaults[i]);
-				dids.add(new DID(tmpVault.getName(), rootJDBCDirectoryPath + tmpVault.getName()));
+				//dids.add(new DID(tmpVault.getName(), rootJDBCDirectoryPath + tmpVault.getName()));
+			dids.add(new DID(tmpVault.getName(), settings));
 			//}
 			//else {
 			//	System.out.println("can read: "+tmpVault.canRead()+ ", path: "+ tmpVault.getAbsolutePath() + ", is directory: "+ tmpVault.isDirectory() + ", is file: "+ tmpVault.isFile() );
@@ -217,10 +221,10 @@ public class DIDVault {
 
 	
 
-	public String getDIDSeed(int didIndex) {
+	/*public String getDIDSeed(int didIndex) {
 		//return didSeedFilePaths.get(didIndex);
 		return dids.get(didIndex).getSeedFilePath();
-	}
+	}*/
 
 	public DID createNewDID(String name, String passphrase) throws Exception {
 
@@ -240,36 +244,30 @@ public class DIDVault {
 		System.out.println("canonical: "+ didCanonical);
 		System.out.println("long form: "+ didLongForm);
 
-		String vaultUrl = createNewVault(name, name, passphrase, seed);
+		settings.put(Session.CURRENT_DID, new DID(name, settings));
+		settings.put(Session.PASSPHRASE, passphrase);
+ 		
+		createNewVault(name, seed);
 
-		return new DID(name, vaultUrl);
+		//return new DID(name, vaultUrl);
+		return new DID(name, settings);
 	}
 
 	public DID[] getAllDIDs() {
 		return dids.toArray(DID[]::new);
 	}
 
-	private String createNewVault(String databaseName, String username, String password, byte[] seed) {
+	private String createNewVault(String databaseName, byte[] seed) {
 		
+		String defaultOperationHash = "0000000000000000000000000000000000000000000000000000000000000000";
 		String dbUrl = "";
-		String framework = "embedded";
-		String protocol = "jdbc:derby:";
+		Properties props = (Properties) settings.get(Session.VAULT_PROPERTIES); 
+		String vaultURL = (String) settings.get(Session.VAULT_JDBC_URL);
 		
-		Properties props = new Properties(); // connection properties
-        // providing a user name and password is optional in the embedded
-        // and derbyclient frameworks
-        props.put("user", username);
-        props.put("password", password);
-        	
+		Connection conn;
 		try {
-			
-			// TODO: In future release, introduce a settings page and let user specify the location of databases.
-			// Currently the vault databases are simply created in the vaults folder.
-			// Derby JDBC use the setting "user.dir" which by default is the running Java project directory. Settings page need to change this environment variable
-			// or in another way change where the databases are created
+			conn = DriverManager.getConnection(vaultURL+";create=true", props);
 				
-			Connection conn = DriverManager.getConnection(protocol + "./vaults/" + databaseName+ ";create=true", props);
-		
 			DatabaseMetaData dbInfo = conn.getMetaData();
 			System.out.println("Database product = "+ dbInfo.getDatabaseProductName());
 			System.out.println("Database driver = "+ dbInfo.getDriverName());
@@ -278,7 +276,7 @@ public class DIDVault {
 			
 			Statement createDidTableStmt = conn.createStatement();
 			
-			createDidTableStmt.execute("CREATE TABLE did(name VARCHAR(60), seed BLOB)");
+			createDidTableStmt.execute("CREATE TABLE did(name VARCHAR(60), latest_operation_hash CHAR(64), seed BLOB)");
 			System.out.println("DID table created");
 			createDidTableStmt.close();
 			
@@ -287,19 +285,21 @@ public class DIDVault {
 			System.out.println("contact table created");
 			createContactTableStmt.close();
 			
-			String query = "INSERT INTO did(name,seed) VALUES (?, ?)";
+			String query = "INSERT INTO did(name,latest_operation_hash, seed) VALUES (?, ?, ?)";
 		    PreparedStatement pstmt;
 		    pstmt = conn.prepareStatement(query);
-			pstmt.setString(1, username);
+			pstmt.setString(1, props.getProperty("user"));
+			
+			pstmt.setString(2, defaultOperationHash);
 			
 			// lagring av byte[] i BLOB kolonne: https://db.apache.org/derby/docs/10.13/ref/rrefblob.html
 			Blob seedBlob = conn.createBlob();
 		    seedBlob.setBytes(1, seed);
 		   
-		    pstmt.setBlob(2, seedBlob);
+		    pstmt.setBlob(3, seedBlob);
 		    
 		    if(pstmt.execute()) {
-		    	System.out.println("Vault created and initialized for "+ username);
+		    	System.out.println("Vault created and initialized for "+ props.getProperty("user"));
 		    	dbUrl = dbInfo.getURL();
 		    }
 		    	
@@ -317,6 +317,7 @@ public class DIDVault {
 			
 	}
 	
+	/*
 	public void addAliceContactsToVault(Connection conn) {
 		
 		String query = "INSERT INTO contact(name,did_string) VALUES (?, ?)";
@@ -383,7 +384,8 @@ public class DIDVault {
 			e.printStackTrace();
 		} 
 	    
-	}
+	}*/
+
 
 	public boolean containsDID(String didNameToCheck) {
 		for(int i = 0; i < dids.size(); i++) {

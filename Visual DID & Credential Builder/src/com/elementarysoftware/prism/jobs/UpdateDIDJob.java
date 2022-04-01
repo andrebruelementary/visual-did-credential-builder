@@ -79,11 +79,20 @@ public class UpdateDIDJob implements Runnable {
 				keys.put(PrismDid.getDEFAULT_MASTER_KEY_ID(), masterKeyPair.getPrivateKey());
 				NodePayloadGenerator nodePayloadGenerator = new NodePayloadGenerator(unpublishedDid, keys);
 
+				System.out.println("latest operation hash "+ did.getLatestOperationHash());
+				
 				Sha256Digest oldHash = Sha256Digest.fromHex(did.getLatestOperationHash());
 
 				List<PrismKeyInformation> keysToAddList = new Vector<PrismKeyInformation>();
 
-
+				/*Sha256Digest stateHash = unpublishedDid.getStateHash();
+				
+				System.out.println("state hash "+ stateHash.getHexValue());
+				
+				if(!stateHash.getHexValue().equals(oldHash.getHexValue())) {
+					System.out.println("latest hash doesn't correspond to current state. Using current state");
+					oldHash = stateHash;
+				}*/
 				//newKeyId = PrismDid.getDEFAULT_ISSUING_KEY_ID()   issuing0
 				//keysToAddList.add(new PrismKeyInformation("issuing1", keysToAdd[0].getKeyType(), keyPairToAdd.getPublicKey(), null, null));
 
@@ -131,7 +140,8 @@ public class UpdateDIDJob implements Runnable {
 
 				System.setOut(console);
 
-				//TODO: CHECK TO SEE IF IT IS POSSIBLE TO RETRY USING THE HASH FROM PrismDid - .getStateHash()
+				//TODO: CHECK TO SEE IF IT IS POSSIBLE TO RETRY USING THE HASH FROM PrismDid - .getStateHash(). WAS NOT POSSIBLE
+				//TODO: Check to see if it is poosbile to retry using empty Optional oldHash if operation fails.
 				/*
 				if(!operationHash.equals("InvalidPreviousOperation()")) {
 					System.out.println("ADD OPERATION HASH RETURNED = "+ operationHash);

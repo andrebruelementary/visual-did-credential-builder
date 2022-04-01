@@ -34,9 +34,9 @@ public class SelectBatchOrCredentialDialog extends Dialog {
 	 * @param parentShell
 	 * @param did from which to load related credentials and batches
 	 */
-	public SelectBatchOrCredentialDialog(Shell parentShell, DID d) {
+	public SelectBatchOrCredentialDialog(Shell parentShell, Settings settings) {
 		super(parentShell);
-		did = d;
+		did = (DID) settings.get(Session.CURRENT_DID);
 	}
 
 	/**

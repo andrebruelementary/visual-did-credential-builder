@@ -37,14 +37,16 @@ public class RestoreDIDWithSeedPhraseDialog extends Dialog {
 	private Text tfDIDName;
 	private Text tfDIDPassphrase;
 	private DID restoredDID;
+	private Settings settings;
 
 	/**
 	 * Create the dialog.
 	 * 
 	 * @param parentShell
 	 */
-	public RestoreDIDWithSeedPhraseDialog(Shell parentShell) {
+	public RestoreDIDWithSeedPhraseDialog(Shell parentShell, Settings s) {
 		super(parentShell);
+		settings = s;
 	}
 
 	public DID getRestoredDID() {
@@ -147,7 +149,7 @@ public class RestoreDIDWithSeedPhraseDialog extends Dialog {
 		loadPhrasesFromUI();
 
 		try {
-			DIDVault didVault = new DIDVault();
+			DIDVault didVault = new DIDVault(settings);
 			restoredDID = didVault.restoreFromSeedPhrases(tfDIDName.getText(), seedPhrases, tfDIDPassphrase.getText());
 			super.okPressed();
 		} catch (FileNotFoundException fnfe) {

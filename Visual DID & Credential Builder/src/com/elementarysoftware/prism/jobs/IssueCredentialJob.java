@@ -5,6 +5,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.HashMap;
+import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -12,8 +13,11 @@ import java.util.Vector;
 
 import org.json.simple.JSONObject;
 
+import com.elementarysoftware.prism.Batch;
 import com.elementarysoftware.prism.Contact;
+import com.elementarysoftware.prism.Credential;
 import com.elementarysoftware.prism.DID;
+import com.elementarysoftware.vdcb.Settings;
 
 import io.iohk.atala.prism.api.CredentialClaim;
 import io.iohk.atala.prism.api.KeyGenerator;
@@ -44,15 +48,20 @@ public class IssueCredentialJob implements Runnable {
 	private DID issuerDID;
 	private Contact holderContact;
 	private JSONObject credentialJson;
+	private Settings settings;
 
-	public IssueCredentialJob(DID d, Contact holder, JSONObject credential) {
+	public IssueCredentialJob(DID d, Contact holder, JSONObject credential, Settings s) {
 		issuerDID = d;
 		holderContact = holder;
 		credentialJson = credential;
+		settings = s;
 	}
 
 	public void run() {
 		String operationHash = "";
+		String batchId = "";
+		String signedCredentialHash = "";
+		
 		try {
 
 			KeyGenerator keygen = KeyGenerator.INSTANCE;
@@ -105,6 +114,9 @@ public class IssueCredentialJob implements Runnable {
 			
 			IssueCredentialsInfo credInfo = nodePayloadGenerator.issueCredentials("issuing1", claims.toArray(CredentialClaim[]::new));
 			
+			batchId = credInfo.getBatchId().getId();
+			signedCredentialHash = credInfo.getCredentialsAndProofs()[0].getSignedCredential().hash().getHexValue();
+			
 			operationHash = PrismCredentialAction.Companion.publishCredential(issuingDIDLongForm.asCanonical(), credInfo, "issuing1");
 			System.out.println("ISSUE CREDENTIAL OPERATION HASH RETURNED = " + operationHash);
 			
@@ -113,13 +125,30 @@ public class IssueCredentialJob implements Runnable {
 
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
+		} 
+
 		if (operationHash != "") {
-			System.out.println("Saving operation hash to xml");
-			issuerDID.setLatestOperationHash(operationHash);
-			System.out.println("Operation hash after xml update " + issuerDID.getLatestOperationHash());
+			
+			Batch batch = new Batch(batchId, operationHash, Batch.WITHOUT_CREDENTIALS, settings);
+			Credential credential = new Credential(holderContact.getName(), settings);
+			credential.setHash(signedCredentialHash);
+			credential.setJSON(credentialJson);
+			credential.setPartOfBatch(batch);
+			
+			if(batch.saveInVault()) {
+				System.out.println("Batch saved in vault");
+				if(credential.saveInVault()) {
+					System.out.println("Credential saved saved in vault");
+				}
+				else {
+					System.err.println("Credential was not saved in vault");
+				}
+			}
+			else {
+				System.err.println("Batch was not saved in vault");
+			}
+				
+			
 		}
 	}
 

@@ -3,6 +3,7 @@ package com.elementarysoftware.vdcb;
 import java.io.FileNotFoundException;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -10,6 +11,8 @@ import java.util.Properties;
 
 import org.eclipse.jface.dialogs.IInputValidator;
 import org.eclipse.jface.dialogs.InputDialog;
+import org.eclipse.jface.dialogs.MessageDialog;
+import org.eclipse.jface.window.Window;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
@@ -19,8 +22,12 @@ import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.List;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.swt.widgets.Text;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
 
+import com.elementarysoftware.prism.Batch;
 import com.elementarysoftware.prism.Contact;
+import com.elementarysoftware.prism.Credential;
 import com.elementarysoftware.prism.DID;
 import com.elementarysoftware.prism.DIDVault;
 
@@ -32,13 +39,18 @@ public class MainWindow {
 	private Text text;
 	private Label displayCurrentDIDName;
 	private Label displayCurrentDIDStatus;
-	protected DID loadedDID;
+	//protected DID loadedDID;
 	// private Button btnPublishDid;
 	// private Button btnUpdateDid;
 	private Button btnViewDid;
 	private Button btnCredentialActions;
 	private Button btnNewContact;
 	private List listOfContacts;
+	
+	private Settings settings;
+	private Button btnAlterDidTable;
+	private Button btnSetOpHash;
+	private Button btnGetOpHash;
 
 	/**
 	 * Launch the application.
@@ -54,18 +66,23 @@ public class MainWindow {
 		}
 	}
 
-	public void setCurrentDID(DID did) {
-		this.loadedDID = did;
+	public void setCurrentDID(DID did, String passphrase) {
+		//this.loadedDID = did;
 
+		settings.put(Session.CURRENT_DID, did);
+		settings.put(Session.PASSPHRASE, passphrase);
+		settings.put(Session.VAULT_JDBC_URL, did.getName());
+		did.updateSettings(settings);
+		
 		// System.out.println("Current DID = "+ loadedDID.getName());
-		displayCurrentDIDName.setText(loadedDID.getName());
+		displayCurrentDIDName.setText(did.getName());
 		// btnPublishDid.setEnabled(false);
 		// btnUpdateDid.setEnabled(false);
 		btnViewDid.setEnabled(did != null);
 		btnNewContact.setEnabled(did != null);
 		btnCredentialActions.setEnabled(did != null);
 
-		int published_status = loadedDID.getStatus();
+		int published_status = did.getStatus();
 		if (published_status == DID.STATUS_PUBLISHED) {
 			displayCurrentDIDStatus.setText("Published");
 			// btnUpdateDid.setEnabled(true);
@@ -77,10 +94,10 @@ public class MainWindow {
 			displayCurrentDIDStatus.setText("Unknown");
 		}
 		
-		if(loadedDID != null) {
+		if(did != null) {
 			// remove all contacts from the list and add contacts for currently loaded DID
 			listOfContacts.removeAll();
-			Iterator<String> it = loadedDID.getContacts().keySet().iterator();
+			Iterator<String> it = did.getContacts().keySet().iterator();
 			while(it.hasNext()) {
 				String name = it.next();
 				listOfContacts.add(name);
@@ -93,9 +110,11 @@ public class MainWindow {
 	 * Open the window.
 	 */
 	public void open() {
-		Display.setAppName("Visual DID & credential builder");
+		Display.setAppName("Visual DID & Credential Builder");
 		Display display = Display.getDefault();
-
+		
+		settings = new Settings();
+		
 		createContents();
 		shlVisualDid.open();
 		shlVisualDid.layout();
@@ -110,7 +129,7 @@ public class MainWindow {
 	protected void openDIDSelectionDialog() {
 
 		Shell dialogShell = new Shell();
-		DialogSelectDID didDialog = new DialogSelectDID(dialogShell, SWT.APPLICATION_MODAL | SWT.DIALOG_TRIM);
+		DialogSelectDID didDialog = new DialogSelectDID(dialogShell, SWT.APPLICATION_MODAL | SWT.DIALOG_TRIM, settings);
 		didDialog.open();
 
 		while (!didDialog.shell.isDisposed()) {
@@ -119,29 +138,32 @@ public class MainWindow {
 			}
 		}
 
-		setCurrentDID((DID) didDialog.result);
+		Shell loginShell = new Shell();
+		VaultLoginDialog loginDlg = new VaultLoginDialog(loginShell, settings);
+		
+		if(loginDlg.open() == Window.OK) {
+		
+			String passphrase = loginDlg.getPassphrase();
+			if(!passphrase.equals("")) {
+				setCurrentDID((DID) didDialog.result, passphrase);
+			}
+		}
+		
 
 	}
 
 	protected void openDIDPropertyPage() {
-
+		
 		Shell propertyShell = new Shell();
-		DIDPropertyPage didDialog = new DIDPropertyPage(propertyShell, loadedDID);
+		DIDPropertyPage didDialog = new DIDPropertyPage(propertyShell, settings);
 		didDialog.open();
-
-		/*
-		 * while (!didDialog.getShell().isDisposed()) { if
-		 * (!didDialog.getShell().getDisplay().readAndDispatch()) {
-		 * didDialog.getShell().getDisplay().sleep(); } }
-		 */
-
-		// setCurrentDID((DID) didDialog.result);
 
 	}
 
 	protected void openDIDCredentialsPage() {
+		
 		Shell credentialsShell = new Shell();
-		DIDCredentialsPage credentialsDialog = new DIDCredentialsPage(credentialsShell, loadedDID);
+		DIDCredentialsPage credentialsDialog = new DIDCredentialsPage(credentialsShell, settings);
 		credentialsDialog.open();
 	}
 
@@ -151,7 +173,7 @@ public class MainWindow {
 	protected void createContents() {
 		shlVisualDid = new Shell();
 		shlVisualDid.setSize(450, 300);
-		shlVisualDid.setText("Visual DID & credential builder");
+		shlVisualDid.setText("Visual DID & Credential Builder");
 
 		listOfContacts = new List(shlVisualDid, SWT.BORDER);
 		//listOfContacts.setItems(new String[] { "Alice", "Bob", "Charlie", "University", "Work", "Doctor" });
@@ -184,16 +206,6 @@ public class MainWindow {
 		btnCredentialActions.setBounds(281, 7, 159, 27);
 		btnCredentialActions.setText("Credential Actions");
 
-		/*
-		 * Button btnIssueCredential = new Button(shlVisualDid, SWT.NONE);
-		 * btnIssueCredential.setBounds(281, 37, 159, 27);
-		 * btnIssueCredential.setText("Issue credential");
-		 * 
-		 * Button btnRevokeCredential = new Button(shlVisualDid, SWT.NONE);
-		 * btnRevokeCredential.setBounds(281, 70, 159, 27);
-		 * btnRevokeCredential.setText("Revoke credential");
-		 */
-
 		Label label = new Label(shlVisualDid, SWT.SEPARATOR | SWT.VERTICAL);
 		label.setBounds(156, 10, 2, 258);
 
@@ -221,33 +233,6 @@ public class MainWindow {
 		btnSelectDid.setBounds(281, 103, 159, 27);
 		btnSelectDid.setText("Select or Create DID");
 
-		/*
-		 * btnPublishDid = new Button(shlVisualDid, SWT.NONE);
-		 * btnPublishDid.addSelectionListener(new SelectionAdapter() {
-		 * 
-		 * @Override public void widgetSelected(SelectionEvent e) {
-		 * 
-		 * PublishDIDJob job = new PublishDIDJob(loadedDID); Thread t = new Thread(job);
-		 * t.start();
-		 * 
-		 * } }); btnPublishDid.setEnabled(false); btnPublishDid.setBounds(281, 136, 159,
-		 * 27); btnPublishDid.setText("Publish DID");
-		 */
-
-		/*
-		 * btnUpdateDid = new Button(shlVisualDid, SWT.NONE);
-		 * btnUpdateDid.setEnabled(false); btnUpdateDid.addSelectionListener(new
-		 * SelectionAdapter() {
-		 * 
-		 * @Override public void widgetSelected(SelectionEvent e) {
-		 * 
-		 * UpdateDIDJob job = new UpdateDIDJob(loadedDID); Thread t = new Thread(job);
-		 * t.start();
-		 * 
-		 * } }); btnUpdateDid.setBounds(281, 169, 159, 27);
-		 * btnUpdateDid.setText("Add Issuing key");
-		 */
-
 		btnViewDid = new Button(shlVisualDid, SWT.NONE);
 		btnViewDid.setEnabled(false);
 		btnViewDid.addSelectionListener(new SelectionAdapter() {
@@ -259,37 +244,72 @@ public class MainWindow {
 		btnViewDid.setBounds(281, 136, 159, 27);
 		btnViewDid.setText("DID Actions");
 		
-		/*
-		Button btnCreateVaultDatabasePOC = new Button(shlVisualDid, SWT.NONE);
-		btnCreateVaultDatabasePOC.addSelectionListener(new SelectionAdapter() {
-			@Override
-			public void widgetSelected(SelectionEvent e) {
-				
-				DIDVault.createNewVault(loadedDID.getName(), loadedDID.getName(), "password");
-				
-			}
-		});
-		btnCreateVaultDatabasePOC.setBounds(281, 169, 159, 27);
-		btnCreateVaultDatabasePOC.setText("Create Vault POC");*/
-
-		// Combo combo = new Combo(shlVisualDid, SWT.NONE);
-		// final ComboViewer combo = new ComboViewer(shlVisualDid, SWT.NONE);
-
-		/*
-		 * ComboViewer comboViewer = new ComboViewer(shlVisualDid, SWT.NONE); Combo
-		 * combo_1 = comboViewer.getCombo(); combo_1.setBounds(217, 198, 181, 22);
-		 * 
-		 * //comboViewer.setContentProvider(new
-		 * com.elementarysoftware.bip0039.BIP0039SeedPhrases());
-		 * //comboViewer.setLabelProvider(new LabelProvider());
-		 * comboViewer.setInput(BIP0039SeedPhrases.getBIP0039Phrases());
-		 * //comboViewer.getCombo().setText("0");
-		 */
-
+//		btnAlterDidTable = new Button(shlVisualDid, SWT.NONE);
+//		btnAlterDidTable.addSelectionListener(new SelectionAdapter() {
+//			@Override
+//			public void widgetSelected(SelectionEvent e) {
+//				Properties props = (Properties) settings.get(Session.VAULT_PROPERTIES); 
+//				String vaultURL = (String) settings.get(Session.VAULT_JDBC_URL);
+//				System.out.println("Alter did table, vault jdbc url = "+ vaultURL);
+//				Connection conn;
+//				try {
+//					conn = DriverManager.getConnection(vaultURL, props);
+//					
+//					String updateQuery = "ALTER TABLE did ADD latest_operation_hash CHAR(64)";
+//					try {
+//						PreparedStatement updateStmt = conn.prepareStatement(updateQuery);
+//						
+//						updateStmt.executeUpdate();
+//						
+//						updateStmt.close();
+//						
+//						conn.close();
+//					} catch (SQLException se) {
+//						se.printStackTrace();
+//					} 
+//					
+//				} catch (SQLException e1) {
+//					e1.printStackTrace();
+//				}
+//			}
+//		});
+//		btnAlterDidTable.setBounds(164, 40, 159, 27);
+//		btnAlterDidTable.setText("Alter did table");
+		
+//		btnSetOpHash = new Button(shlVisualDid, SWT.NONE);
+//		btnSetOpHash.addSelectionListener(new SelectionAdapter() {
+//			@Override
+//			public void widgetSelected(SelectionEvent e) {
+//				
+//				DID did = (DID) settings.get(Session.CURRENT_DID);
+//				did.setLatestOperationHash("fad70010dab41fbb411e72f0ab9ae49cea8a49cc853438fd6949bded2e8a046f");
+//				
+//				
+//				//System.out.println(""did.getLatestOperationHash());
+//				
+//			}
+//		});
+//		btnSetOpHash.setBounds(164, 83, 94, 27);
+//		btnSetOpHash.setText("set op hash");
+		
+//		btnGetOpHash = new Button(shlVisualDid, SWT.NONE);
+//		btnGetOpHash.addSelectionListener(new SelectionAdapter() {
+//			@Override
+//			public void widgetSelected(SelectionEvent e) {
+//				
+//				DID did = (DID) settings.get(Session.CURRENT_DID);
+//				System.out.println("op hash = "+ did.getLatestOperationHash());
+//				
+//			}
+//		});
+//		btnGetOpHash.setBounds(164, 116, 94, 27);
+//		btnGetOpHash.setText("get op hash");
+		
 	}
 
 	protected void createNewContact() {
-		CreateNewContactDialog createContactDlg = new CreateNewContactDialog(shlVisualDid, loadedDID); //, "New contact...", "Please provide long form string of DID to add to your contacts list.", "did:prism:XXXXXXXX:XXXXX", new DIDLongFormValidator());
+		
+		CreateNewContactDialog createContactDlg = new CreateNewContactDialog(shlVisualDid, settings); //, "New contact...", "Please provide long form string of DID to add to your contacts list.", "did:prism:XXXXXXXX:XXXXX", new DIDLongFormValidator());
 		createContactDlg.open();
 		
 		listOfContacts.add(createContactDlg.getCreatedContact().getName());

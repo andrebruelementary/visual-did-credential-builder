@@ -34,10 +34,11 @@ public class CreateNewContactDialog extends Dialog {
 	 * 
 	 * @param parentShell
 	 */
-	public CreateNewContactDialog(Shell parentShell, DID d) {
+	public CreateNewContactDialog(Shell parentShell, Settings settings) {
 		super(parentShell);
-		currentDID = d;
+		currentDID = (DID) settings.get(Session.CURRENT_DID);
 	}
+	
 
 	public Contact getCreatedContact() {
 		return createdContact;
