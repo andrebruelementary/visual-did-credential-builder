@@ -67,15 +67,7 @@ public class Credential {
 		return parentBatch;
 	}
 
-	/*private boolean credentialTableExistsInVault(Connection connection) throws SQLException {
-	    DatabaseMetaData meta = connection.getMetaData();
-	    ResultSet resultSet = meta.getTables(null, null, "credential", new String[] {"TABLE"});
-
-	    return resultSet.next();
-	}*/
-	
 	public boolean saveInVault() {
-		String dbUrl = "";
 		
 		boolean savedInVault = false;
 		
@@ -85,19 +77,6 @@ public class Credential {
 		Connection conn;
 		try {
 			conn = DriverManager.getConnection(vaultURL, props);
-			
-		
-			
-			/*if(!credentialTableExistsInVault(conn)) {
-				Statement createCredentialTableStmt = conn.createStatement();
-			
-				createCredentialTableStmt.execute("CREATE TABLE credential(hash CHAR(64), holder_name VARCHAR(60), batch_id CHAR(64), network VARCHAR(30), txid CHAR(64), json CLOB)");
-				System.out.println("credential table created");
-				createCredentialTableStmt.close();
-			}*/
-			
-			/*private Batch parentBatch;
-			private String holder, hash, txid, network;*/
 			
 			String query = "INSERT INTO credential(hash,holder_name,batch_id,network,txid,json) VALUES (?, ?, ?, ?, ?, ?)";
 		    PreparedStatement pstmt;
@@ -116,20 +95,7 @@ public class Credential {
 		    	System.out.println("Credential "+ hash +" added to vault");
 		    	savedInVault = true;
 		    }
-		    /*else {
-		    	// Insert failed, try creating the table and retry insert
-		    	Statement createCredentialTableStmt = conn.createStatement();
-				createCredentialTableStmt.execute("CREATE TABLE credential(hash CHAR(64), holder_name VARCHAR(60), batch_id CHAR(64), network VARCHAR(30), blockchain_name VARCHAR(60), txid CHAR(64), json CLOB)");
-				System.out.println("credential table created");
-				createCredentialTableStmt.close();
-				
-				if(pstmt.execute()) {
-				    System.out.println("Credential "+ hash +" added to vault");
-				    savedInVault = true;
-				}
-		    }*/
-		    
-		    	
+		     	
 		    pstmt.close();
 			
 		} catch (SQLException e) {

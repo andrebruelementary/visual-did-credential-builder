@@ -134,6 +134,12 @@ public class CreateNewDIDDialog extends Dialog {
 						"The name already exist. Please provide unique name or use the existing DID");
 			}
 			else {
+//				DID tmpDID = new DID(tfDIDName.getText(), settings);
+//				settings.put(Session.CURRENT_DID, tmpDID);
+//				settings.put(Session.PASSPHRASE, tfDIDPassphrase.getText());
+//				settings.put(Session.VAULT_JDBC_URL, tfDIDName.getText());
+//				tmpDID.updateSettings(settings);
+//				didVault.updateSettings(settings);
 				createdDID = didVault.createNewDID(tfDIDName.getText(), tfDIDPassphrase.getText());
 				super.okPressed();
 			}

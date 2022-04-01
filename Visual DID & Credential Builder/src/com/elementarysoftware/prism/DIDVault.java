@@ -43,7 +43,7 @@ import java.sql.Statement;
 
 public class DIDVault {
 
-	private File rootDirectory;
+	//private File rootDirectory;
 	private File rootDbDirectory;
 	//List<String> didNames = new Vector<String>();
 	//List<String> didSeedFilePaths = new Vector<String>();
@@ -60,6 +60,7 @@ public class DIDVault {
 
 	public DIDVault(Settings s) throws FileNotFoundException {
 
+		settings = s;
 		File f = new File((String)s.get(Settings.ROOT_DIRECTORY));
 		
 		if(f.isDirectory()) {
@@ -97,44 +98,15 @@ public class DIDVault {
 		System.out.println("canonical: "+ didCanonical);
 		System.out.println("long form: "+ didLongForm);
 
-		/*
-		DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
-		DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
-
-		Document doc = docBuilder.newDocument();
-		Element rootElement = doc.createElement("did");
-		rootElement.setAttribute("name", name);
-		doc.appendChild(rootElement);
-
-
-		File didMetadata = File.createTempFile("did_", ".xml", rootDirectory);
-
-		File seedFile = new File(didMetadata.getAbsolutePath()+"_seed.bytes");
-		try (FileOutputStream fos = new FileOutputStream(seedFile)) {
-			fos.write(seed);
-			//fos.close // no need, try-with-resources auto close
-		}
-
-		Element seedElement = doc.createElement("seed");
-		seedElement.setTextContent(seedFile.getAbsolutePath());
-		rootElement.appendChild(seedElement);
-
-		// write DOM document to a file
-		try (FileOutputStream output =
-				new FileOutputStream(didMetadata.getAbsolutePath())) {
-			FileOperations.writeXml(doc, output);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		*/
-		
-		settings.put(Session.CURRENT_DID, new DID(name, settings));
+		DID restoredDID = new DID(name, settings);
+		settings.put(Session.CURRENT_DID, restoredDID);
 		settings.put(Session.PASSPHRASE, passphrase);
-
+		settings.put(Session.VAULT_JDBC_URL, name);
+		restoredDID.updateSettings(settings);
+ 		
 		createNewVault(name, seed);
-		
-		//return new DID(name, vaultUrl);
-		return new DID(name, settings);
+
+		return restoredDID;
 	}
 
 
@@ -244,13 +216,16 @@ public class DIDVault {
 		System.out.println("canonical: "+ didCanonical);
 		System.out.println("long form: "+ didLongForm);
 
-		settings.put(Session.CURRENT_DID, new DID(name, settings));
+		DID createdDID = new DID(name, settings);
+		settings.put(Session.CURRENT_DID, createdDID);
 		settings.put(Session.PASSPHRASE, passphrase);
+		settings.put(Session.VAULT_JDBC_URL, name);
+		createdDID.updateSettings(settings);
  		
 		createNewVault(name, seed);
 
 		//return new DID(name, vaultUrl);
-		return new DID(name, settings);
+		return createdDID;
 	}
 
 	public DID[] getAllDIDs() {
@@ -275,7 +250,6 @@ public class DIDVault {
 			System.out.println("Connected as user = "+ dbInfo.getUserName());
 			
 			Statement createDidTableStmt = conn.createStatement();
-			
 			createDidTableStmt.execute("CREATE TABLE did(name VARCHAR(60), latest_operation_hash CHAR(64), seed BLOB)");
 			System.out.println("DID table created");
 			createDidTableStmt.close();
@@ -284,6 +258,17 @@ public class DIDVault {
 			createContactTableStmt.execute("CREATE TABLE contact(name VARCHAR(60), did_string CLOB)");
 			System.out.println("contact table created");
 			createContactTableStmt.close();
+			
+			Statement createBatchTableStmt = conn.createStatement();
+			createBatchTableStmt.execute("CREATE TABLE batch(id CHAR(64), operation_hash CHAR(64))");
+			System.out.println("batch table created");
+			createBatchTableStmt.close();
+			
+			Statement createCredentialTableStmt = conn.createStatement();
+			createCredentialTableStmt.execute("CREATE TABLE credential(hash CHAR(64), holder_name VARCHAR(60), batch_id CHAR(64), network VARCHAR(30), txid CHAR(64), json CLOB)");
+			System.out.println("credential table created");
+			createCredentialTableStmt.close();
+			
 			
 			String query = "INSERT INTO did(name,latest_operation_hash, seed) VALUES (?, ?, ?)";
 		    PreparedStatement pstmt;
@@ -392,6 +377,10 @@ public class DIDVault {
 			if(dids.get(i).getName().toLowerCase().equals(didNameToCheck.toLowerCase())) return true;
 		}
 		return false;
+	}
+
+	public void updateSettings(Settings s) {
+		settings = s;
 	}
 
 	/*public void setDIDOperationHash(DID did, String operationHash) {

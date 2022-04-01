@@ -196,108 +196,6 @@ public class Batch {
 		}
 	}
 	
-	/*
-	public void setLatestOperationHash(String operationHash) {
-		
-		//TODO: Skrive denne slik at den lagrer i batch sin xml fil
-		
-		// Instantiate the Factory
-				DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-				try {
-					// optional, but recommended
-					// process XML securely, avoid attacks like XML External Entities (XXE)
-					dbf.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-
-					// parse XML file
-					DocumentBuilder db = dbf.newDocumentBuilder();
-
-					Document doc = db.parse(new File(getBatchInfoFile()));
-					doc.getDocumentElement().normalize();
-
-					Node xml_batch = doc.getElementsByTagName("batch").item(0);
-
-					NamedNodeMap attr = xml_batch.getAttributes();
-					Node oprHashAttr = attr.getNamedItem("latestOperationHash");
-
-					if(oprHashAttr != null) {
-						System.out.println("latestOperationHash before change: "+oprHashAttr.getTextContent());
-						oprHashAttr.setTextContent(operationHash);
-						System.out.println("latestOperationHash after change: "+oprHashAttr.getTextContent());
-					}
-					else {
-						Element elem_did = (Element) xml_batch;
-						elem_did.setAttribute("latestOperationHash", operationHash);
-					}
-
-					// write DOM document to a file
-					try (FileOutputStream output =
-							new FileOutputStream(getBatchInfoFile())) {
-						FileOperations.writeXml(doc, output);
-					} catch (IOException e) {
-						e.printStackTrace();
-					} catch (TransformerException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-
-				}
-				catch (SAXException saxe) {
-					System.err.println("Error reading DID settings. "+ saxe.getMessage());
-				}
-				catch (ParserConfigurationException pce) {
-					System.err.println("Error reading DIDs. "+ pce.getMessage());
-				}
-				catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-
-	}
-	*/
-
-	/*
-	private String getBatchInfoFile() {
-		return infoFilePath;
-	}*/
-	
-	/*
-	private void createBatchInfoFile(File directory) {
-		//infoFilePath = 
-		DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
-		DocumentBuilder docBuilder;
-		try {
-			docBuilder = docFactory.newDocumentBuilder();
-			
-			Document doc = docBuilder.newDocument();
-			Element rootElement = doc.createElement("batch");
-			rootElement.setAttribute("id", id);
-			doc.appendChild(rootElement);
-
-			File batchMetadata = new File(directory, id+".xml");//File.createTempFile("did_", ".xml", directory);
-
-			// write DOM document to a file
-			try (FileOutputStream output =
-					new FileOutputStream(batchMetadata.getAbsolutePath())) {
-				FileOperations.writeXml(doc, output);
-			} catch (IOException e) {
-				e.printStackTrace();
-			} catch (TransformerException e) {
-				e.printStackTrace();
-			}		
-			
-		} catch (ParserConfigurationException e1) {
-			e1.printStackTrace();
-		}
-	
-	}*/
-
-	/*private boolean batchTableExistsInVault(Connection connection) throws SQLException {
-	    DatabaseMetaData meta = connection.getMetaData();
-	    ResultSet resultSet = meta.getTables(null, null, "batch", new String[] {"TABLE"});
-
-	    return resultSet.next();
-	}*/
-	
 	public boolean saveInVault() {
 		
 		boolean savedInVault = false;
@@ -309,15 +207,6 @@ public class Batch {
 		try {
 			conn = DriverManager.getConnection(vaultURL, props);
 		
-			/*
-			if(!batchTableExistsInVault(conn)) {
-				Statement createBatchTableStmt = conn.createStatement();
-			
-				createBatchTableStmt.execute("CREATE TABLE batch(id CHAR(64), operation_hash CHAR(64))");
-				System.out.println("batch table created");
-				createBatchTableStmt.close();
-			}*/
-			
 			String query = "INSERT INTO batch(id,operation_hash) VALUES (?, ?)";
 		    PreparedStatement pstmt;
 		    pstmt = conn.prepareStatement(query);
@@ -329,18 +218,6 @@ public class Batch {
 	    		System.out.println("Batch "+ id +" added to vault");
 	    		savedInVault = true;
 		    }
-		    /*else {
-		    	// Insert failed, try creating the table and retry insert
-		    	Statement createBatchTableStmt = conn.createStatement();
-				createBatchTableStmt.execute("CREATE TABLE batch(id CHAR(64), operation_hash CHAR(64))");
-				System.out.println("batch table created");
-				createBatchTableStmt.close();
-		    	
-		    	if(pstmt.execute()) {
-			    	System.out.println("Batch "+ id +" added to vault");
-			    	savedInVault = true;
-			    }
-		    }*/
 		    	
 		    pstmt.close();
 		    conn.close();
