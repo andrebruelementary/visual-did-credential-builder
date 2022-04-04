@@ -4,7 +4,18 @@ import java.util.List;
 
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.IDialogConstants;
+import org.eclipse.jface.util.LocalSelectionTransfer;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.dnd.DND;
+import org.eclipse.swt.dnd.DragSource;
+import org.eclipse.swt.dnd.DragSourceAdapter;
+import org.eclipse.swt.dnd.DragSourceEvent;
+import org.eclipse.swt.dnd.DragSourceListener;
+import org.eclipse.swt.dnd.DropTarget;
+import org.eclipse.swt.dnd.DropTargetEvent;
+import org.eclipse.swt.dnd.DropTargetListener;
+import org.eclipse.swt.dnd.TextTransfer;
+import org.eclipse.swt.dnd.Transfer;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
@@ -16,12 +27,16 @@ import com.elementarysoftware.prism.DID;
 import com.elementarysoftware.prism.jobs.RevokeCredentialJob;
 import com.elementarysoftware.prism.jobs.IssueCredentialJob;
 import com.elementarysoftware.prism.jobs.UpdateDIDJob;
+import com.elementarysoftware.vdbc.listeners.CredentialBuilderDragSourceListener;
+import com.elementarysoftware.vdbc.listeners.CredentialBuilderDropTargetListener;
 import com.elementarysoftware.vdcb.tree.CredentialBuilderContentProvider;
 import com.elementarysoftware.vdcb.tree.CredentialBuilderLabelProvider;
 import com.elementarysoftware.vdcb.tree.DIDDataModelTreeContentProvider;
 import com.elementarysoftware.vdcb.tree.DIDDataModelTreeLabelProvider;
+import com.elementarysoftware.vdcb.tree.PrismKeyTreeObject;
 
 import org.eclipse.swt.widgets.Tree;
+import org.eclipse.swt.widgets.TreeItem;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.eclipse.jface.viewers.TreeViewer;
@@ -72,14 +87,24 @@ public class DIDCredentialsPage extends Dialog {
 		list.add("property 1"); 
 		list.add("property 2");
 		list.add(42);
+		list.add(3.14);
 		obj.put("properties", list);
 		
 		treeViewer.setContentProvider(new CredentialBuilderContentProvider());
 		treeViewer.setLabelProvider(new CredentialBuilderLabelProvider(parent.getDisplay()));
 		treeViewer.setInput(obj);
-		//treeViewer.refresh();
 		
-
+		// Add drag and drop capabilities the the credential builder tree viewer
+		Transfer[] types = new Transfer[] {LocalSelectionTransfer.getTransfer()};
+		
+		DragSource dragSourceCredentialBuilder = new DragSource(treeViewer.getControl(), DND.DROP_COPY | DND.DROP_LINK | DND.DROP_MOVE);
+		dragSourceCredentialBuilder.setTransfer(types);
+		dragSourceCredentialBuilder.addDragListener(new CredentialBuilderDragSourceListener(treeViewer));
+		
+		DropTarget dropTargetCredentialBuilder = new DropTarget(treeViewer.getControl(), DND.DROP_COPY | DND.DROP_LINK | DND.DROP_MOVE);
+		dropTargetCredentialBuilder.setTransfer(types);
+		dropTargetCredentialBuilder.addDropListener( new CredentialBuilderDropTargetListener(treeViewer));
+		
 		Button btnIssueCredential = new Button(container, SWT.NONE);
 		btnIssueCredential.addSelectionListener(new SelectionAdapter() {
 			@Override
@@ -88,8 +113,6 @@ public class DIDCredentialsPage extends Dialog {
 				// Initialize the issue credential job with JSON Credential to issue and contact that will be issued to (become Holder of credential)
 				JSONObject credentialJson = (JSONObject) treeViewer.getInput();
 				System.out.println("credential JSON = "+ credentialJson.toJSONString());
-				
-				if(credentialJson == null) return;
 				
 				SelectContactDialog contactSelection = new SelectContactDialog(getShell(), currentDID.getContacts());
 				contactSelection.open();
