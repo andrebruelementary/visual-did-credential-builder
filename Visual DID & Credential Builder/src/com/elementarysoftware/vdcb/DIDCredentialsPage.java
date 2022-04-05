@@ -2,6 +2,11 @@ package com.elementarysoftware.vdcb;
 
 import java.util.List;
 
+import org.eclipse.jface.action.Action;
+import org.eclipse.jface.action.GroupMarker;
+import org.eclipse.jface.action.IMenuListener;
+import org.eclipse.jface.action.IMenuManager;
+import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.jface.util.LocalSelectionTransfer;
@@ -29,6 +34,7 @@ import com.elementarysoftware.prism.jobs.IssueCredentialJob;
 import com.elementarysoftware.prism.jobs.UpdateDIDJob;
 import com.elementarysoftware.vdbc.listeners.CredentialBuilderDragSourceListener;
 import com.elementarysoftware.vdbc.listeners.CredentialBuilderDropTargetListener;
+import com.elementarysoftware.vdbc.listeners.CredentialBuilderMenuListener;
 import com.elementarysoftware.vdcb.tree.CredentialBuilderContentProvider;
 import com.elementarysoftware.vdcb.tree.CredentialBuilderLabelProvider;
 import com.elementarysoftware.vdcb.tree.DIDDataModelTreeContentProvider;
@@ -37,12 +43,15 @@ import com.elementarysoftware.vdcb.tree.PrismKeyTreeObject;
 
 import org.eclipse.swt.widgets.Tree;
 import org.eclipse.swt.widgets.TreeItem;
+import org.eclipse.ui.IWorkbenchActionConstants;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
+import org.eclipse.jface.viewers.IStructuredSelection;
 import org.eclipse.jface.viewers.TreeViewer;
 import org.eclipse.jface.window.Window;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Label;
+import org.eclipse.swt.widgets.Menu;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
@@ -93,6 +102,15 @@ public class DIDCredentialsPage extends Dialog {
 		treeViewer.setContentProvider(new CredentialBuilderContentProvider());
 		treeViewer.setLabelProvider(new CredentialBuilderLabelProvider(parent.getDisplay()));
 		treeViewer.setInput(obj);
+		
+		// Add right-click context menu
+		MenuManager contextMenu = new MenuManager("Credential Builder Context Menu");
+	    contextMenu.setRemoveAllWhenShown(true);
+	    contextMenu.addMenuListener(new CredentialBuilderMenuListener(contextMenu, treeViewer));
+
+	    Menu menu = contextMenu.createContextMenu(treeViewer.getControl());
+	    treeViewer.getControl().setMenu(menu);
+		
 		
 		// Add drag and drop capabilities the the credential builder tree viewer
 		Transfer[] types = new Transfer[] {LocalSelectionTransfer.getTransfer()};
@@ -170,7 +188,7 @@ public class DIDCredentialsPage extends Dialog {
 
 		return container;
 	}
-
+	
 	/**
 	 * Create contents of the button bar.
 	 * 

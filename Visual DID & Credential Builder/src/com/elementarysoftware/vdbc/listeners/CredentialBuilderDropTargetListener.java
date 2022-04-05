@@ -82,7 +82,7 @@ public class CredentialBuilderDropTargetListener implements DropTargetListener {
 		return dropSuccessful;
 	}
 	
-	private boolean removeFromParent(TreeItem sourceItem) {
+private boolean removeFromParent(TreeItem sourceItem) {
 		
 		TreeItem sourceParentItem = sourceItem.getParentItem();
 		
@@ -96,6 +96,9 @@ public class CredentialBuilderDropTargetListener implements DropTargetListener {
 		else { 
 			System.out.println("Parent is "+ sourceParentItem.getText());
 			sourceJSONParent = sourceParentItem.getData();
+			if (sourceJSONParent.getClass() == SimpleEntry.class) {
+				sourceJSONParent = ((SimpleEntry)sourceJSONParent).getValue();
+			}
 		}
 
 		if (sourceJSONParent.getClass() == JSONArray.class) {
