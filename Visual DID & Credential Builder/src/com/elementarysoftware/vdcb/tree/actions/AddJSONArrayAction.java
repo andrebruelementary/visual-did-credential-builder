@@ -9,14 +9,14 @@ import org.eclipse.swt.widgets.TreeItem;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 
-import com.elementarysoftware.vdcb.AddObjectDialog;
+import com.elementarysoftware.vdcb.AddArrayDialog;
 
-public class AddJSONObjectAction extends JSONAction {
+public class AddJSONArrayAction extends JSONAction {
 
 	TreeViewer treeViewer;
 	
-	public AddJSONObjectAction(TreeViewer viewer) {
-		super("Add Object");
+	public AddJSONArrayAction(TreeViewer viewer) {
+		super("Add List");
 		treeViewer = viewer;
 	}
 
@@ -27,21 +27,20 @@ public class AddJSONObjectAction extends JSONAction {
 		
 		boolean askForName = selectedOrParentIsArray(selectedTreeItems);
 		
-		String objectName = "";
+		String arrayName = "";
 		Shell shell = new Shell();
-		AddObjectDialog dlg = new AddObjectDialog(shell);
+		AddArrayDialog dlg = new AddArrayDialog(shell);
 		if(askForName) {
 			dlg.open();
 			if(dlg.getReturnCode() != Window.OK) {
 				return;
 			}
-			objectName = dlg.getObjectName();
+			arrayName = dlg.getArrayName();
 		}
-		
 		
 		if (selectedTreeItems.length == 0) {
 			// No tree item selected. Add to root element
-			((JSONObject) treeViewer.getInput()).put(objectName, new JSONObject());
+			((JSONObject) treeViewer.getInput()).put(arrayName, new JSONArray());
 		} else {
 			TreeItem selectedItem = selectedTreeItems[0];
 			Object selectedJSONObject = selectedItem.getData();
@@ -51,9 +50,9 @@ public class AddJSONObjectAction extends JSONAction {
 				Object jsonValue = jsonElement.getValue();
 				Class jsonType = jsonValue.getClass();
 				if (jsonType == JSONObject.class) {
-					addToObject((JSONObject) jsonValue, objectName, new JSONObject());
+					addToObject((JSONObject) jsonValue, arrayName, new JSONArray());
 				} else if (jsonType == JSONArray.class) {
-					addToArray((JSONArray) jsonValue, new JSONObject());
+					addToArray((JSONArray) jsonValue, new JSONArray());
 				} else {
 					System.out.println(
 							"Add to json property of type " + jsonValue.getClass() + "...add sibling object");
@@ -61,7 +60,7 @@ public class AddJSONObjectAction extends JSONAction {
 					
 					if (parent == null) {
 						// selected item is child of root
-						addToObject((JSONObject) treeViewer.getInput(), objectName, new JSONObject());
+						addToObject((JSONObject) treeViewer.getInput(), arrayName, new JSONArray());
 					} else {
 						Object parentJSONObject = parent.getData();
 						if (parentJSONObject.getClass() == SimpleEntry.class) {
@@ -70,10 +69,10 @@ public class AddJSONObjectAction extends JSONAction {
 							Object jsonParentValue = jsonParentElement.getValue();
 							Class jsonParentType = jsonParentValue.getClass();
 							if (jsonParentType == JSONObject.class) {
-								addToObject((JSONObject) jsonParentValue, objectName, new JSONObject());
+								addToObject((JSONObject) jsonParentValue, arrayName, new JSONArray());
 							} else { 
 								// element must be array...as a parent can only be Object or Array
-								addToArray((JSONArray) jsonParentValue, new JSONObject());
+								addToArray((JSONArray) jsonParentValue, new JSONArray());
 							}
 						}
 					}
@@ -84,7 +83,7 @@ public class AddJSONObjectAction extends JSONAction {
 				
 				if (parent == null) {
 					// selected item is child of root
-					addToObject((JSONObject) treeViewer.getInput(), objectName, new JSONObject());
+					addToObject((JSONObject) treeViewer.getInput(), arrayName, new JSONArray());
 				} else {
 					Object parentJSONObject = parent.getData();
 					if (parentJSONObject.getClass() == SimpleEntry.class) {
@@ -93,10 +92,10 @@ public class AddJSONObjectAction extends JSONAction {
 						Object jsonParentValue = jsonParentElement.getValue();
 						Class jsonParentType = jsonParentValue.getClass();
 						if (jsonParentType == JSONObject.class) {
-							addToObject((JSONObject) jsonParentValue, objectName, new JSONObject());
+							addToObject((JSONObject) jsonParentValue, arrayName, new JSONArray());
 						} else { 
 							// element must be array...as a parent can only be Object or Array
-							addToArray((JSONArray) jsonParentValue, new JSONObject());
+							addToArray((JSONArray) jsonParentValue, new JSONArray());
 						}
 					}
 				}
@@ -105,5 +104,7 @@ public class AddJSONObjectAction extends JSONAction {
 		
 		treeViewer.refresh();
 	}
-
+	
+	
+	
 }

@@ -51,7 +51,26 @@ public class CredentialBuilderContentProvider implements ITreeContentProvider {
 
 				return jsonObjects.toArray(SimpleEntry[]::new);
 			}
-		} else {
+		}
+		else if(parentElement.getClass() == JSONObject.class) {
+			JSONObject object = (JSONObject) parentElement;
+			Set<String> keys = object.keySet();
+			List<SimpleEntry<String, Object>> jsonObjects = new Vector<SimpleEntry<String, Object>>();
+			Iterator<String> it = keys.iterator();
+			while (it.hasNext()) {
+				String key = it.next().toString();
+				System.out.println(key + " = " + object.get(key));
+				SimpleEntry<String, Object> pair = new SimpleEntry<String, Object>(key, object.get(key));
+				jsonObjects.add(pair);
+			}
+
+			return jsonObjects.toArray(SimpleEntry[]::new);
+		}
+		else if(parentElement.getClass() == JSONArray.class) {
+			JSONArray array = (JSONArray) parentElement;
+			return array.toArray();
+		}
+		else {
 			System.out.println("CredentialBuilderContentProvider: No getChildren() configured for "
 					+ parentElement.getClass().toString());
 		}

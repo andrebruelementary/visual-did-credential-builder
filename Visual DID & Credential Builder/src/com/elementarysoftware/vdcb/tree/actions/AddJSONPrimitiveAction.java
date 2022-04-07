@@ -9,14 +9,14 @@ import org.eclipse.swt.widgets.TreeItem;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 
-import com.elementarysoftware.vdcb.AddObjectDialog;
+import com.elementarysoftware.vdcb.AddPrimitiveDialog;
 
-public class AddJSONObjectAction extends JSONAction {
+public class AddJSONPrimitiveAction extends JSONAction {
 
 	TreeViewer treeViewer;
 	
-	public AddJSONObjectAction(TreeViewer viewer) {
-		super("Add Object");
+	public AddJSONPrimitiveAction(TreeViewer viewer) {
+		super("Add Value");
 		treeViewer = viewer;
 	}
 
@@ -25,23 +25,35 @@ public class AddJSONObjectAction extends JSONAction {
 		
 		TreeItem[] selectedTreeItems = treeViewer.getTree().getSelection();
 		
-		boolean askForName = selectedOrParentIsArray(selectedTreeItems);
-		
-		String objectName = "";
 		Shell shell = new Shell();
-		AddObjectDialog dlg = new AddObjectDialog(shell);
-		if(askForName) {
-			dlg.open();
-			if(dlg.getReturnCode() != Window.OK) {
-				return;
-			}
-			objectName = dlg.getObjectName();
+		AddPrimitiveDialog dlg = new AddPrimitiveDialog(shell);
+		dlg.open();
+		
+		if(dlg.getReturnCode() != Window.OK) {
+			return;
 		}
 		
+		String selectedType = dlg.getSelectedType();
+		String primitiveValue = dlg.getPrimitiveValue();
+		
+		Object value;
+		if(selectedType.equals(PRIMITIVE_TYPE_STRING)) {
+			value = primitiveValue;
+		}
+		else if (selectedType.equals(PRIMITIVE_TYPE_INTEGER)) {
+			value = Integer.parseInt(primitiveValue);
+		}
+		else if(selectedType.equals(PRIMITIVE_TYPE_DOUBLE)) {
+			value = Double.parseDouble(primitiveValue);
+		}
+		else {
+			System.err.println("Not supported primitive");
+			return;
+		}
 		
 		if (selectedTreeItems.length == 0) {
-			// No tree item selected. Add to root element
-			((JSONObject) treeViewer.getInput()).put(objectName, new JSONObject());
+			// No tree item selected. Not supported to add primitive to object
+			System.err.println("Not supported to add primitive to object");
 		} else {
 			TreeItem selectedItem = selectedTreeItems[0];
 			Object selectedJSONObject = selectedItem.getData();
@@ -51,17 +63,18 @@ public class AddJSONObjectAction extends JSONAction {
 				Object jsonValue = jsonElement.getValue();
 				Class jsonType = jsonValue.getClass();
 				if (jsonType == JSONObject.class) {
-					addToObject((JSONObject) jsonValue, objectName, new JSONObject());
+					//Not supported to add primitive to object
+					System.err.println("Not supported to add primitive to object");
 				} else if (jsonType == JSONArray.class) {
-					addToArray((JSONArray) jsonValue, new JSONObject());
+					addToArray((JSONArray) jsonValue, value);
 				} else {
 					System.out.println(
-							"Add to json property of type " + jsonValue.getClass() + "...add sibling object");
+							"Add to json value of type " + jsonValue.getClass() + "...add sibling object");
 					TreeItem parent = ((TreeItem) selectedItem).getParentItem();
 					
 					if (parent == null) {
-						// selected item is child of root
-						addToObject((JSONObject) treeViewer.getInput(), objectName, new JSONObject());
+						// Not supported to add primitive to object
+						System.err.println("Not supported to add primitive to object");
 					} else {
 						Object parentJSONObject = parent.getData();
 						if (parentJSONObject.getClass() == SimpleEntry.class) {
@@ -70,10 +83,11 @@ public class AddJSONObjectAction extends JSONAction {
 							Object jsonParentValue = jsonParentElement.getValue();
 							Class jsonParentType = jsonParentValue.getClass();
 							if (jsonParentType == JSONObject.class) {
-								addToObject((JSONObject) jsonParentValue, objectName, new JSONObject());
+								// Not supported to add primitive to object
+								System.err.println("Not supported to add primitive to object");
 							} else { 
 								// element must be array...as a parent can only be Object or Array
-								addToArray((JSONArray) jsonParentValue, new JSONObject());
+								addToArray((JSONArray) jsonParentValue, value);
 							}
 						}
 					}
@@ -83,8 +97,8 @@ public class AddJSONObjectAction extends JSONAction {
 				TreeItem parent = ((TreeItem) selectedItem).getParentItem();
 				
 				if (parent == null) {
-					// selected item is child of root
-					addToObject((JSONObject) treeViewer.getInput(), objectName, new JSONObject());
+					// selected item is child of root. Not supported to add primitive to object
+					System.err.println("Not supported to add primitive to object");
 				} else {
 					Object parentJSONObject = parent.getData();
 					if (parentJSONObject.getClass() == SimpleEntry.class) {
@@ -93,10 +107,11 @@ public class AddJSONObjectAction extends JSONAction {
 						Object jsonParentValue = jsonParentElement.getValue();
 						Class jsonParentType = jsonParentValue.getClass();
 						if (jsonParentType == JSONObject.class) {
-							addToObject((JSONObject) jsonParentValue, objectName, new JSONObject());
+							// Not supported to add primitive to object
+							System.err.println("Not supported to add primitive to object");
 						} else { 
 							// element must be array...as a parent can only be Object or Array
-							addToArray((JSONArray) jsonParentValue, new JSONObject());
+							addToArray((JSONArray) jsonParentValue, value);
 						}
 					}
 				}
@@ -105,5 +120,7 @@ public class AddJSONObjectAction extends JSONAction {
 		
 		treeViewer.refresh();
 	}
-
+	
+	
+	
 }
