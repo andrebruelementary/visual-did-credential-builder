@@ -25,7 +25,13 @@ public class AddJSONObjectAction extends JSONAction {
 		
 		TreeItem[] selectedTreeItems = treeViewer.getTree().getSelection();
 		
-		boolean askForName = selectedOrParentIsArray(selectedTreeItems);
+		boolean askForName;
+		if (selectedTreeItems.length == 0) {
+			askForName = true;
+		}
+		else {
+			askForName = !selectedOrParentIsJSONArray(selectedTreeItems);
+		}
 		
 		String objectName = "";
 		Shell shell = new Shell();

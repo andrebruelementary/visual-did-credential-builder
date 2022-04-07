@@ -34,12 +34,14 @@ public class JSONAction extends Action {
 		array.remove(value);
 	}
 	
-	protected boolean selectedOrParentIsArray(TreeItem[] selectedTreeItems) {
+
+	
+	public static boolean selectedOrParentIsJSONArray(TreeItem[] selectedTreeItems) {
 		
 		boolean arrayFound = false;
 		
 		if (selectedTreeItems.length == 0) {
-			arrayFound = true;
+			//arrayFound = false;
 		}
 		else {
 			TreeItem selectedItem = selectedTreeItems[0];
@@ -50,23 +52,23 @@ public class JSONAction extends Action {
 
 				Object jsonValue = jsonElement.getValue();
 				if(jsonValue.getClass() != JSONArray.class) {
-					arrayFound = true;
+					//arrayFound = false;
 				}
 				else if(jsonValue.getClass() == JSONArray.class) {
-					// askForName = false;
+					arrayFound = true;
 				}
 				else {
 					TreeItem parent = ((TreeItem) selectedItem).getParentItem();
 					if (parent == null) {
 						// selected item is child of root
-						arrayFound = true;
+						//arrayFound = false;
 					} else {
 						Object parentJSONObject = parent.getData();
 						if (parentJSONObject.getClass() == SimpleEntry.class) {
 							SimpleEntry jsonParentElement = (SimpleEntry) parentJSONObject;
 
 							Object jsonParentValue = jsonParentElement.getValue();
-							if(jsonParentValue.getClass() != JSONArray.class) {
+							if(jsonParentValue.getClass() == JSONArray.class) {
 								arrayFound = true;
 							}
 						}
@@ -74,14 +76,13 @@ public class JSONAction extends Action {
 				}
 			}
 			else {
-				System.out.println("primitive type " + selectedJSONObject.getClass() + "...add sibling object");
 				TreeItem parent = ((TreeItem) selectedItem).getParentItem();
 				
 				if (parent == null) {
-					arrayFound = true;
+					//arrayFound = false;
 				}
 				else if(selectedJSONObject.getClass() == JSONArray.class) {
-					// askForName = false;
+					arrayFound = true;
 				}
 				else {
 					Object parentJSONObject = parent.getData();
@@ -89,7 +90,7 @@ public class JSONAction extends Action {
 						SimpleEntry jsonParentElement = (SimpleEntry) parentJSONObject;
 
 						Object jsonParentValue = jsonParentElement.getValue();
-						if (jsonParentValue.getClass() != JSONArray.class) {
+						if (jsonParentValue.getClass() == JSONArray.class) {
 							arrayFound = true;
 						}
 					}
@@ -97,6 +98,145 @@ public class JSONAction extends Action {
 			}
 		}
 		return arrayFound;
+	}
+	
+	public static boolean selectedIsJSONArray(TreeItem[] selectedTreeItems) {
+		
+		boolean arrayFound = false;
+		
+		if (selectedTreeItems.length == 0) {
+			//arrayFound = false;
+		}
+		else {
+			TreeItem selectedItem = selectedTreeItems[0];
+			Object selectedJSONObject = selectedItem.getData();
+			if (selectedJSONObject.getClass() == SimpleEntry.class) {
+				
+				SimpleEntry jsonElement = (SimpleEntry) selectedJSONObject;
+
+				Object jsonValue = jsonElement.getValue();
+				if(jsonValue.getClass() == JSONArray.class) {
+					arrayFound = true;
+				}
+			}
+			else if(selectedJSONObject.getClass() == JSONArray.class) {
+				arrayFound = true;
+			}
+		}
+		return arrayFound;
+	}
+	
+	public static boolean selectedOrParentIsJSONObject(TreeItem[] selectedTreeItems) {
+		
+		boolean objectFound = false;
+		
+		if (selectedTreeItems.length == 0) {
+			objectFound = true;
+		}
+		else {
+			TreeItem selectedItem = selectedTreeItems[0];
+			Object selectedJSONObject = selectedItem.getData();
+			if (selectedJSONObject.getClass() == SimpleEntry.class) {
+				
+				SimpleEntry jsonElement = (SimpleEntry) selectedJSONObject;
+
+				Object jsonValue = jsonElement.getValue();
+				if(jsonValue.getClass() == JSONObject.class) {
+					objectFound = true;
+				}
+				else {
+					TreeItem parent = ((TreeItem) selectedItem).getParentItem();
+					if (parent == null) {
+						// selected item is child of root
+						objectFound = true;
+					} else {
+						Object parentJSONObject = parent.getData();
+						if (parentJSONObject.getClass() == SimpleEntry.class) {
+							SimpleEntry jsonParentElement = (SimpleEntry) parentJSONObject;
+
+							Object jsonParentValue = jsonParentElement.getValue();
+							if(jsonParentValue.getClass() == JSONObject.class) {
+								objectFound = true;
+							}
+						}
+					}
+				}
+			}
+			else {
+				TreeItem parent = ((TreeItem) selectedItem).getParentItem();
+				
+				if (parent == null) {
+					objectFound = true;
+				}
+				else if(selectedJSONObject.getClass() == JSONObject.class) {
+					objectFound = true;
+				}
+				else {
+					Object parentJSONObject = parent.getData();
+					if (parentJSONObject.getClass() == SimpleEntry.class) {
+						SimpleEntry jsonParentElement = (SimpleEntry) parentJSONObject;
+
+						Object jsonParentValue = jsonParentElement.getValue();
+						if (jsonParentValue.getClass() == JSONObject.class) {
+							objectFound = true;
+						}
+					}
+				}
+			}
+		}
+		return objectFound;
+	}
+	
+	public static boolean selectedIsProperty(TreeItem[] selectedTreeItems) {
+		
+		boolean propertyFound = false;
+		
+		
+		TreeItem selectedItem = selectedTreeItems[0];
+		Object selectedJSONObject = selectedItem.getData();
+		if (selectedJSONObject.getClass() == SimpleEntry.class) {
+			propertyFound = true;
+		}
+		
+		return propertyFound;
+	}
+	
+	public static boolean selectedIsValue(TreeItem[] selectedTreeItems) {
+		
+		boolean valueFound = false;
+		
+		TreeItem selectedItem = selectedTreeItems[0];
+		Object selectedJSONObject = selectedItem.getData();
+		if (selectedJSONObject instanceof String) {
+			valueFound = true;
+		}
+		else if(selectedJSONObject instanceof Number) {
+			valueFound = true;
+		}
+		
+		return valueFound;
+	}
+
+	public static boolean selectedIsJSONObject(TreeItem[] selectedTreeItems) {
+		boolean objectFound = false;
+		
+		
+		TreeItem selectedItem = selectedTreeItems[0];
+		Object selectedJSONObject = selectedItem.getData();
+		if (selectedJSONObject.getClass() == SimpleEntry.class) {
+			
+			SimpleEntry jsonElement = (SimpleEntry) selectedJSONObject;
+
+			Object jsonValue = jsonElement.getValue();
+			if(jsonValue.getClass() == JSONObject.class) {
+				objectFound = true;
+			}
+		}
+		else if(selectedJSONObject.getClass() == JSONObject.class) {
+			objectFound = true;
+		}
+		
+		return objectFound;
 	}
 	
 }

@@ -84,7 +84,14 @@ public class CredentialBuilderLabelProvider implements ILabelProvider {
 			return ir.get(PrismImageRegistry.PROPERTY_TEXT);
 		} else if (element instanceof Number) {
 			return ir.get(PrismImageRegistry.PROPERTY_NUMBER);
-		} else {
+		}
+		else if(element instanceof JSONObject) {
+			return ir.get(PrismImageRegistry.PROPERTY_OBJECT);
+		}
+		else if(element instanceof JSONArray) {
+			return ir.get(PrismImageRegistry.PROPERTY_LIST);
+		}
+		else {
 			System.out.println(
 					"CredentialBuilderLabelProvider: No image configured for class " + element.getClass().toString());
 		}
@@ -112,7 +119,14 @@ public class CredentialBuilderLabelProvider implements ILabelProvider {
 			}
 
 			return entry.getKey();
-		} else {
+		}
+		else if(element instanceof JSONObject) {
+			return "";
+		}
+		else if(element instanceof JSONArray) {
+			return "";
+		}
+		else {
 			System.out.println(
 					"CredentialBuilderLabelProvider: No text configured for class " + element.getClass().toString());
 		}
