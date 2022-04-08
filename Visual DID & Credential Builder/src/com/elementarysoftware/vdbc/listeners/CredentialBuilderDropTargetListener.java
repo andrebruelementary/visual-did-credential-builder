@@ -1,20 +1,13 @@
 package com.elementarysoftware.vdbc.listeners;
 
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
-import java.util.Vector;
 import java.util.AbstractMap.SimpleEntry;
 
 import org.eclipse.jface.util.LocalSelectionTransfer;
-import org.eclipse.jface.viewers.ISelection;
-import org.eclipse.jface.viewers.IStructuredSelection;
 import org.eclipse.jface.viewers.TreeViewer;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.dnd.DND;
 import org.eclipse.swt.dnd.DropTargetEvent;
 import org.eclipse.swt.dnd.DropTargetListener;
-import org.eclipse.swt.dnd.TransferData;
 import org.eclipse.swt.widgets.TreeItem;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
@@ -75,7 +68,7 @@ public class CredentialBuilderDropTargetListener implements DropTargetListener {
 		boolean dropSuccessful = false;
 
 		JSONObject jsonObject = (JSONObject) targetEntry.getValue();
-		jsonObject.put(sourceItem.getText(), sourceEntry);
+		jsonObject.put(sourceEntry.getKey(), sourceEntry.getValue());
 		
 		dropSuccessful = removeFromParent(sourceItem);
 			

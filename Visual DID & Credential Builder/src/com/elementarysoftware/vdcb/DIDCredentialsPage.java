@@ -1,11 +1,11 @@
 package com.elementarysoftware.vdcb;
 
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.List;
 
-import org.eclipse.jface.action.Action;
-import org.eclipse.jface.action.GroupMarker;
-import org.eclipse.jface.action.IMenuListener;
-import org.eclipse.jface.action.IMenuManager;
 import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.IDialogConstants;
@@ -13,40 +13,29 @@ import org.eclipse.jface.util.LocalSelectionTransfer;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.dnd.DND;
 import org.eclipse.swt.dnd.DragSource;
-import org.eclipse.swt.dnd.DragSourceAdapter;
-import org.eclipse.swt.dnd.DragSourceEvent;
-import org.eclipse.swt.dnd.DragSourceListener;
 import org.eclipse.swt.dnd.DropTarget;
-import org.eclipse.swt.dnd.DropTargetEvent;
-import org.eclipse.swt.dnd.DropTargetListener;
-import org.eclipse.swt.dnd.TextTransfer;
 import org.eclipse.swt.dnd.Transfer;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
+import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Shell;
 
 import com.elementarysoftware.prism.Contact;
 import com.elementarysoftware.prism.DID;
 import com.elementarysoftware.prism.jobs.RevokeCredentialJob;
 import com.elementarysoftware.prism.jobs.IssueCredentialJob;
-import com.elementarysoftware.prism.jobs.UpdateDIDJob;
 import com.elementarysoftware.vdbc.listeners.CredentialBuilderDragSourceListener;
 import com.elementarysoftware.vdbc.listeners.CredentialBuilderDropTargetListener;
 import com.elementarysoftware.vdbc.listeners.CredentialBuilderMenuListener;
 import com.elementarysoftware.vdcb.tree.CredentialBuilderContentProvider;
 import com.elementarysoftware.vdcb.tree.CredentialBuilderLabelProvider;
-import com.elementarysoftware.vdcb.tree.DIDDataModelTreeContentProvider;
-import com.elementarysoftware.vdcb.tree.DIDDataModelTreeLabelProvider;
-import com.elementarysoftware.vdcb.tree.PrismKeyTreeObject;
-
 import org.eclipse.swt.widgets.Tree;
-import org.eclipse.swt.widgets.TreeItem;
-import org.eclipse.ui.IWorkbenchActionConstants;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
-import org.eclipse.jface.viewers.IStructuredSelection;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 import org.eclipse.jface.viewers.TreeViewer;
 import org.eclipse.jface.window.Window;
 import org.eclipse.swt.layout.GridLayout;
@@ -85,8 +74,8 @@ public class DIDCredentialsPage extends Dialog {
 
 		TreeViewer treeViewer = new TreeViewer(container, SWT.BORDER);
 		Tree tree = treeViewer.getTree();
-		GridData gd_tree = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 4);
-		gd_tree.heightHint = 205;
+		GridData gd_tree = new GridData(SWT.FILL, SWT.FILL, true, true, 1, 6);
+		gd_tree.heightHint = 173;
 		tree.setLayoutData(gd_tree);
 		
 		JSONObject obj = new JSONObject();
@@ -184,11 +173,94 @@ public class DIDCredentialsPage extends Dialog {
 		gd_btnImportCredential.widthHint = 151;
 		btnImportCredential.setLayoutData(gd_btnImportCredential);
 		btnImportCredential.setText("Import credential");
+		
+		Button btnSaveAsTemplate = new Button(container, SWT.NONE);
+		GridData gd_btnSaveAsTemplate = new GridData(SWT.LEFT, SWT.CENTER, false, false, 1, 1);
+		gd_btnSaveAsTemplate.widthHint = 148;
+		btnSaveAsTemplate.setLayoutData(gd_btnSaveAsTemplate);
+		btnSaveAsTemplate.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				
+				Shell shell = new Shell();
+				FileDialog fd = new FileDialog(shell, SWT.SAVE);
+		        fd.setText("Save credential as template");
+		        String[] filterExt = { "*.json" };
+		        fd.setFilterExtensions(filterExt);
+		        String selected = fd.open();
+		        System.out.println(selected);
+		        if(selected == null) return;
+		        
+		        File jsonFile = new File(selected);
+		        JSONObject json = (JSONObject) treeViewer.getInput();
+		        
+		        // Clone JSON and anonymize values
+		        JSONObject jsonClone = (JSONObject) json.clone();
+		        jsonClone = anonymizeValues(jsonClone);
+		        
+		        // Save anonymized JSON clone
+		        try {
+		        	FileWriter fw = new FileWriter(jsonFile);
+		        	jsonClone.writeJSONString(fw);
+					fw.close();
+				} catch (IOException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+		        
+			}
+		});
+		btnSaveAsTemplate.setText("Save as template");
+		
+		Button btnLoadTemplate = new Button(container, SWT.NONE);
+		btnLoadTemplate.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				Shell shell = new Shell();
+				FileDialog fd = new FileDialog(shell, SWT.OPEN);
+		        fd.setText("Open credential template");
+		        String[] filterExt = { "*.json" };
+		        fd.setFilterExtensions(filterExt);
+		        String selected = fd.open();
+		        System.out.println(selected);
+		        if(selected == null) return;
+		        
+		        JSONParser jsonParser = new JSONParser();
+				try {
+					File jsonFile = new File(selected);
+					FileReader fr = new FileReader(jsonFile);
+					JSONObject jsonObject = (JSONObject) jsonParser.parse(fr);
+					if(jsonObject != null) {
+						treeViewer.setInput(jsonObject);
+						treeViewer.refresh();
+					}
+					else {
+						System.err.println("unable to read credential json template");
+					}
+				} catch (IOException ioe) {
+					ioe.printStackTrace();
+				} catch (ParseException pe) {
+					pe.printStackTrace();
+				}
+			}
+		});
+		GridData gd_btnLoadTemplate = new GridData(SWT.LEFT, SWT.CENTER, false, false, 1, 1);
+		gd_btnLoadTemplate.widthHint = 151;
+		btnLoadTemplate.setLayoutData(gd_btnLoadTemplate);
+		btnLoadTemplate.setText("Load template");
 		new Label(container, SWT.NONE);
 
 		return container;
 	}
 	
+	protected JSONObject anonymizeValues(JSONObject jsonClone) {
+		//TODO: loop JSONObject and replace values with random default values of correct type
+		
+		
+		//TODO: Check if necessary to return object, or object references will handle this without return
+		return jsonClone;
+	}
+
 	/**
 	 * Create contents of the button bar.
 	 * 
