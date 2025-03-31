@@ -1,7 +1,0 @@
-/bin/
-/did_vault/*
-/backup/*
-derby.log
-/vaults/*
-.DS_Store
-null.log
