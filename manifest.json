@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "DID & Credential Builder",
-  "description": "Create DIDs and issue/verify verifiable credentials using the Identus framework",
+  "name": "Visual DID & Credential Builder",
+  "description": "Create, manage, and issue decentralized digital identities (DIDs) and verifiable credentials",
   "version": "1.0.0",
   "action": {
     "default_popup": "popup.html",
@@ -22,6 +22,6 @@
     "storage"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }
