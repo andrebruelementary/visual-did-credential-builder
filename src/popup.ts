@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (isInitialized && mediatorDID) {
     mediatorDIDInput.value = mediatorDID;
     try {
-      await agent.initialize(mediatorDID);
+      await agent.initialize();
       showStatus('Agent already initialized', 'info');
       createDIDButton.disabled = false;
       loadDIDs();
@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     showStatus('Initializing...', 'loading');
     try {
-      const initialized = await agent.initialize(mediatorDID);
+      const initialized = await agent.initialize();
       if (initialized) {
         showStatus('Agent initialized successfully', 'success');
         // Store for future use

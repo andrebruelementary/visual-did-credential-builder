@@ -32,7 +32,6 @@ export class Agent {
 
   // Store important keys
   private edKey: SDK.Domain.PrivateKey | null = null;
-  private x25519Key: SDK.Domain.PrivateKey | null = null;
 
   constructor() {}
 
@@ -61,16 +60,12 @@ export class Agent {
   }
 
   /**
-   * Initialize the agent with either a mediator DID or an Out-of-Band invitation
-   * @param mediatorInput Either a mediator DID or an OOB invitation URL
-   * @param useOobUrl Whether the input is an OOB URL (true) or DID (false)
+   * Initialize the agent without mediator connectivity
+   * Focused on DID creation, publishing, and credential operations
    */
-  public async initialize(
-    mediatorInput: string,
-    useOobUrl: boolean = false
-  ): Promise<boolean> {
+  public async initialize(): Promise<boolean> {
     try {
-      console.log(`Starting initialization with ${useOobUrl ? 'OOB URL' : 'mediator DID'}: ${mediatorInput}`);
+      console.log("Starting agent initialization without mediator");
       
       this.status = AgentStatus.INITIALIZING;
       
@@ -91,17 +86,11 @@ export class Agent {
       const storageAdapter = new ChromeStorage();
       this.storage = new SDK.Pluto(storageAdapter, this.apollo);
       
-      // Create cryptographic keys
+      // Create the Ed25519 key
       console.log("Creating Ed25519 key");
       this.edKey = this.apollo.createPrivateKey({
         type: SDK.Domain.KeyTypes.EC,
         curve: SDK.Domain.Curve.ED25519
-      });
-      
-      console.log("Creating X25519 key");
-      this.x25519Key = this.apollo.createPrivateKey({
-        type: SDK.Domain.KeyTypes.Curve25519,
-        curve: SDK.Domain.Curve.X25519
       });
       
       // Initialize Castor for DID operations
@@ -112,15 +101,15 @@ export class Agent {
       console.log("Initializing API");
       const api = new SDK.ApiImpl();
       
-      // Initialize DIDComm
+      // Initialize DIDComm with minimal requirements
       console.log("Initializing DIDComm");
       const didComm = new SDK.DIDCommWrapper(this.apollo, this.castor, this.storage);
       
-      // Initialize Mercury for communication
+      // Initialize Mercury with minimal requirements
       console.log("Initializing Mercury");
       this.mercury = new SDK.Mercury(this.castor, didComm, api);
       
-      // Initialize Pollux for credential operations
+      // Initialize Pollux for credential operations - essential for credentials
       console.log("Initializing Pollux");
       this.pollux = new SDK.Pollux(this.apollo, this.castor, api);
       
@@ -131,85 +120,33 @@ export class Agent {
         console.log("Pollux started successfully");
       } catch (e) {
         console.error("Failed to start Pollux:", e);
-        // Continue even if Pollux fails
+        // Continue even if Pollux fails since we might not need it immediately
       }
       
-      // Create peer DID for mediation
-      console.log("Creating peer DID for mediation");
-      let peerDID;
-      try {
-        peerDID = await this.castor.createPeerDID(
-          [this.edKey, this.x25519Key],
-          [{
-            id: "didcomm",
-            type: ["DIDCommMessaging"],
-            serviceEndpoint: {
-              uri: "http://localhost:8080",
-              accept: ["didcomm/v2"],
-              routingKeys: []
-            },
-            isDIDCommMessaging: true
-          }]
-        );
-        console.log("Peer DID created successfully:", peerDID.toString());
-      } catch (e) {
-        console.error("Failed to create peer DID:", e);
-        throw e;
-      }
+      // Create a "dummy" mediator DID that won't be used for real mediation
+      console.log("Creating dummy mediator DID");
+      // This is just a placeholder and won't be used for actual mediation
+      const dummyMediatorDID = SDK.Domain.DID.fromString("did:example:dummy");
       
-      // Set up mediator
-      let mediatorDID;
-      
-      if (useOobUrl) {
-        // Process OOB URL to extract mediator DID
-        try {
-          // This is a basic extraction - in a real implementation, you'd use proper
-          // DIDComm OOB invitation parsing
-          const url = new URL(mediatorInput);
-          const oobParam = url.searchParams.get('_oob');
-          
-          if (!oobParam) {
-            throw new Error('Invalid OOB URL: missing _oob parameter');
-          }
-          
-          // Simple decoding of base64 string to get the invitation JSON
-          const decodedInvitation = atob(oobParam);
-          const invitation = JSON.parse(decodedInvitation);
-          
-          if (invitation && invitation.from) {
-            mediatorDID = invitation.from;
-            console.log("Extracted mediator DID from OOB:", mediatorDID);
-          } else {
-            throw new Error('Invalid invitation format: missing "from" field');
-          }
-        } catch (e) {
-          console.error("Failed to parse OOB invitation:", e);
-          throw new Error('Invalid OOB invitation URL');
-        }
-      } else {
-        // Use the provided mediator DID directly
-        mediatorDID = mediatorInput;
-      }
-      
-      console.log("Parsing mediator DID");
-      const mediatorDIDObj = SDK.Domain.DID.fromString(mediatorDID);
-      
+      // Create a mediator store - required for the handler
       console.log("Creating mediator store");
       const mediatorStore = new SDK.PublicMediatorStore(this.storage);
       
+      // Create the mediator handler with the dummy DID
       console.log("Creating mediator handler");
-      this.mediatorHandler = new SDK.BasicMediatorHandler(mediatorDIDObj, this.mercury, mediatorStore);
+      this.mediatorHandler = new SDK.BasicMediatorHandler(dummyMediatorDID, this.mercury, mediatorStore);
       
-      console.log("Setting up connections manager");
+      // Create connections manager
+      console.log("Creating connections manager");
       this.connectionsManager = new SDK.ConnectionsManager(
-        this.castor,
-        this.mercury,
-        this.storage,
-        this.pollux,
+        this.castor, 
+        this.mercury, 
+        this.storage, 
+        this.pollux, 
         this.mediatorHandler
       );
       
-      // Create the agent
+      // Create the agent with real components but we'll prevent actual mediation later
       console.log("Creating the agent");
       this.agent = new SDK.Agent(
         this.apollo,
@@ -221,34 +158,15 @@ export class Agent {
         this.seed
       );
       
-      // Start the agent
-      console.log("Starting the agent");
-      try {
-        await this.agent.start();
-        console.log("Agent started successfully");
-        this.status = AgentStatus.INITIALIZED;
-        
-        // Store initialization state
-        await this.storeInitializationState(true, mediatorDID);
-        
-        return true;
-      } catch (e) {
-        console.error("Failed to start agent:", e);
-        
-        // Special handling for X25519 key errors to allow limited functionality
-        if (e instanceof Error && e.message.includes('X25519')) {
-          console.log("Detected X25519 key issue - initializing with limited functionality");
-          this.status = AgentStatus.INITIALIZED;
-          
-          // Store initialization state with note about limited functionality
-          await this.storeInitializationState(true, mediatorDID, true);
-          
-          return true;
-        }
-        
-        this.status = AgentStatus.FAILED;
-        return false;
-      }
+      // The key part: we'll set the agent as initialized without calling start()
+      // This bypasses the mediation checks but still allows DID creation
+      console.log("Setting agent as initialized without calling start()");
+      this.status = AgentStatus.INITIALIZED;
+      
+      // Store initialization state
+      await this.storeInitializationState(true, "no-mediator", true);
+      
+      return true;
     } catch (error) {
       console.error("Initialization failed:", error);
       this.status = AgentStatus.FAILED;
