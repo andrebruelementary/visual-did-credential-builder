@@ -38,7 +38,23 @@ module.exports = {
       patterns: [
         { from: 'src/assets', to: 'assets', noErrorOnMissing: true },
         { from: 'icons', to: 'icons', noErrorOnMissing: true },
-        { from: 'src/styles', to: 'styles', noErrorOnMissing: true }
+        { from: 'src/styles', to: 'styles', noErrorOnMissing: true },
+        { 
+          from: 'src/components/credentialBuilder/credentialBuilder.html', 
+          to: 'components/credentialBuilder/credentialBuilder.html' 
+        },
+        { 
+          from: 'src/components/credentialBuilder/credentialBuilder.css', 
+          to: 'components/credentialBuilder/credentialBuilder.css' 
+        },
+        { 
+          from: 'src/components/templateSelector/templateSelector.html', 
+          to: 'components/templateSelector/templateSelector.html' 
+        },
+        { 
+          from: 'src/components/templateSelector/templateSelector.css', 
+          to: 'components/templateSelector/templateSelector.css' 
+        }
       ],
     }),
   ],

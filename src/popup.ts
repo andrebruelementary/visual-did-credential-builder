@@ -1,8 +1,11 @@
 // src/popup.ts
 import { Agent } from './agent';
-import { DIDInfo, DIDManager } from './didManager';
+import { DIDInfo, DIDManager, DIDType } from './didManager';
 import { TabManager } from './components/TabManager';
 import { ChromeStorage } from './storage/ChromeStorage';
+import { CredentialBuilder } from './components/credentialBuilder/credentialBuilder';
+import { Contact } from './models/contact';
+import { StorageService } from './services/storageService';
 
 /**
  * Main entry point for the extension popup
@@ -24,6 +27,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   const didTypeSelect = document.getElementById('didType') as HTMLSelectElement;
   const didListElement = document.getElementById('didList') as HTMLElement;
   const statusElement = document.getElementById('status') as HTMLElement;
+  
+  // Initialize credential builder for the Issue tab
+  const credentialBuilder = new CredentialBuilder('credential-builder');
+  
+  // Initialize contacts for credential issuance
+  const contactsList = document.getElementById('contacts-list') as HTMLElement;
+  const contactSearch = document.getElementById('contact-search') as HTMLInputElement;
+  
+  // Set up contact search
+  contactSearch?.addEventListener('input', () => {
+    filterContacts(contactSearch.value);
+  });
+  
+  // Load contacts when Issue tab is selected
+  tabManager.on('tab-changed', (tabId: string) => {
+    if (tabId === 'issue') {
+      loadContacts();
+    }
+  });
   
   // Check if agent is already initialized
   const isInitialized = await ChromeStorage.get('agent_initialized');
@@ -84,17 +106,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Enable appropriate functionality based on DID type
         if (didType === 'issuer') {
-          // We'll implement issuer functionality later
-          const issueTab = document.getElementById('issue-tab');
-          if (issueTab) {
-            // Could add a visual indicator that this tab is now functional
-          }
+          // Enable issuer functionality
+          const issueTab = tabManager.enableTab('issue');
         } else if (didType === 'verifier') {
-          // We'll implement verifier functionality later
-          const verifyTab = document.getElementById('verify-tab');
-          if (verifyTab) {
-            // Could add a visual indicator that this tab is now functional
-          }
+          // Enable verifier functionality
+          const verifyTab = tabManager.enableTab('verify');
         }
       } else {
         showStatus(`Failed to create DID: ${result.error}`, 'error');
@@ -188,9 +204,85 @@ document.addEventListener('DOMContentLoaded', async () => {
     const hasIssuerDID = dids.some(did => did.type === 'issuer');
     const hasVerifierDID = dids.some(did => did.type === 'verifier');
     
-    // We'll enable specific functionality based on available DIDs later
-    // For now, just log this information
+    // Enable or disable tabs based on available DIDs
+    if (hasIssuerDID) {
+      tabManager.enableTab('issue');
+    } else {
+      tabManager.disableTab('issue');
+    }
+    
+    if (hasVerifierDID) {
+      tabManager.enableTab('verify');
+    } else {
+      tabManager.disableTab('verify');
+    }
+    
     console.log('DID availability:', { hasIssuerDID, hasVerifierDID });
+  }
+  
+  // Load contacts for the Issue tab
+  async function loadContacts() {
+    try {
+      const contacts = await StorageService.getContacts();
+      renderContacts(contacts);
+    } catch (error) {
+      console.error('Error loading contacts:', error);
+      if (contactsList) {
+        contactsList.innerHTML = '<p class="error-message">Error loading contacts</p>';
+      }
+    }
+  }
+  
+  // Render contacts in the contacts list
+  function renderContacts(contacts: Contact[]) {
+    if (!contactsList) return;
+    
+    contactsList.innerHTML = '';
+    
+    contacts.forEach(contact => {
+      const contactTemplate = document.getElementById('contact-item-template') as HTMLTemplateElement;
+      const contactEl = contactTemplate.content.cloneNode(true) as DocumentFragment;
+      
+      const contactItem = contactEl.querySelector('.contact-item') as HTMLElement;
+      contactItem.setAttribute('data-contact-id', contact.id);
+      
+      const nameEl = contactEl.querySelector('.contact-name') as HTMLElement;
+      nameEl.textContent = contact.name;
+      
+      // Set up selection
+      contactItem.addEventListener('click', () => {
+        // Remove selected class from all contacts
+        document.querySelectorAll('.contact-item').forEach(item => {
+          item.classList.remove('selected');
+        });
+
+        // Add selected class to this contact
+        contactItem.classList.add('selected');
+
+        // Update credential builder with selected contact
+        credentialBuilder.setSelectedContact(contact);
+      });
+      
+      contactsList.appendChild(contactItem);
+    });
+  }
+  
+  // Filter contacts based on search query
+  function filterContacts(query: string) {
+    if (!contactsList) return;
+    
+    const normalizedQuery = query.toLowerCase().trim();
+    
+    const contactItems = contactsList.querySelectorAll('.contact-item');
+    contactItems.forEach(item => {
+      const name = item.querySelector('.contact-name')?.textContent || '';
+      
+      if (name.toLowerCase().includes(normalizedQuery)) {
+        (item as HTMLElement).style.display = 'flex';
+      } else {
+        (item as HTMLElement).style.display = 'none';
+      }
+    });
   }
   
   // Helper to show status messages

@@ -1,0 +1,215 @@
+.template-selector-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  
+  .template-selector-dialog {
+    background-color: white;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 800px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+  
+  .dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  
+  .dialog-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+  
+  .template-tabs {
+    display: flex;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  
+  .tab-btn {
+    padding: 12px 20px;
+    background-color: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-weight: 500;
+    color: #6b7280;
+    transition: all 0.2s;
+  }
+  
+  .tab-btn.active {
+    color: #6366f1;
+    border-bottom-color: #6366f1;
+  }
+  
+  .tab-btn:hover:not(.active) {
+    color: #4b5563;
+    background-color: #f9fafb;
+  }
+  
+  .template-search {
+    padding: 15px 20px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  
+  .template-search input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  
+  .tab-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px 20px;
+    display: none;
+  }
+  
+  .tab-content.active {
+    display: block;
+  }
+  
+  .templates-loading, 
+  .templates-empty, 
+  .templates-error {
+    padding: 20px;
+    text-align: center;
+    color: #6b7280;
+  }
+  
+  .hidden {
+    display: none !important;
+  }
+  
+  .suggest-template-container {
+    margin-top: 20px;
+    text-align: center;
+    padding: 10px;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .templates-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+  
+  .template-item {
+    position: relative; /* To position the actions container */
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 15px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .template-item:hover {
+    border-color: #6366f1;
+    background-color: #f9fafb;
+  }
+  
+  .template-item.selected {
+    border-color: #6366f1;
+    background-color: #eff6ff;
+  }
+  
+  .template-item-name {
+    margin: 0 0 5px 0;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  
+  .template-item-description {
+    margin: 0 0 10px 0;
+    color: #6b7280;
+    font-size: 0.875rem;
+  }
+  
+  .template-item-properties {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  
+  .template-property-tag {
+    background-color: #e5e7eb;
+    color: #4b5563;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+  }
+  
+  .template-folder {
+    margin-bottom: 10px;
+  }
+
+  .template-item-actions {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 5px;
+  }
+  
+  .delete-template-btn {
+    color: #6b7280;
+    transition: color 0.2s;
+  }
+  
+  .delete-template-btn:hover {
+    color: #ef4444; /* Red color on hover */
+  }
+  
+  /* Ensure template content has right padding to accommodate the delete button */
+  .template-item-info {
+    padding-right: 30px;
+  }
+  
+  .folder-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 10px;
+    background-color: #f9fafb;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  .folder-header svg {
+    margin-right: 8px;
+    color: #6b7280;
+  }
+  
+  .folder-name {
+    flex: 1;
+    font-weight: 500;
+  }
+  
+  .folder-content {
+    padding-left: 20px;
+    margin-top: 5px;
+  }
+  
+  .dialog-footer {
+    padding: 15px 20px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }

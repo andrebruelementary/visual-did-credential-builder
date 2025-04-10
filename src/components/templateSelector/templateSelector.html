@@ -1,0 +1,67 @@
+<div class="template-selector-overlay">
+    <div class="template-selector-dialog">
+      <div class="dialog-header">
+        <h2>Select Credential Template</h2>
+        <button class="icon-button close-dialog-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      
+      <div class="template-tabs">
+        <button class="tab-btn active" data-tab="public">Public Templates</button>
+        <button class="tab-btn" data-tab="private">Private Templates</button>
+      </div>
+      
+      <div class="template-search">
+        <input type="text" id="template-search-input" placeholder="Search templates...">
+      </div>
+      
+      <div class="tab-content active" id="public-templates-tab">
+        <div class="templates-loading">Loading public templates...</div>
+        <div class="templates-list" id="public-templates-list"></div>
+        <div class="templates-empty hidden">No public templates found.</div>
+        <div class="templates-error hidden">Error loading templates.</div>
+      </div>
+      
+      <div class="tab-content" id="private-templates-tab">
+        <div class="templates-loading">Loading private templates...</div>
+        <div class="templates-list" id="private-templates-list"></div>
+        <div class="templates-empty hidden">No private templates found. Save templates to your local storage.</div>
+        <div class="templates-error hidden">Error loading templates.</div>
+        
+        <div class="suggest-template-container">
+          <button id="suggest-template-btn" class="secondary-button" disabled>Suggest Selected Template for Public Repository</button>
+        </div>
+      </div>
+      
+      <div class="dialog-footer">
+        <button class="secondary-button cancel-btn">Cancel</button>
+        <button class="primary-button select-btn" disabled>Select Template</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Template item template -->
+  <template id="template-item-template">
+    <div class="template-item">
+      <div class="template-item-info">
+        <h3 class="template-item-name"></h3>
+        <p class="template-item-description"></p>
+        <div class="template-item-properties"></div>
+      </div>
+    </div>
+  </template>
+  
+  <!-- Template folder template -->
+  <template id="template-folder-template">
+    <div class="template-folder">
+      <div class="folder-header">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        <span class="folder-name"></span>
+        <button class="icon-button expand-folder-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+      </div>
+      <div class="folder-content hidden"></div>
+    </div>
+  </template>
