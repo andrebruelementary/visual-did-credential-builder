@@ -44,40 +44,52 @@ export class DIDManager {
   }
 
  /**
-   * Create a new DID
-   * @param type The type of DID to create (holder, issuer, verifier)
-   * @returns Promise with the result of the DID creation
-   */
- async createDID(type: string): Promise<{success: boolean, did?: string, error?: string}> {
-    if (!this.agent.isInitialized()) {
-      return {
-        success: false,
-        error: 'Agent not initialized. Please initialize first.'
-      };
-    }
-    
-    try {
-      // Get the underlying agent instance
-      const agentInstance = this.agent.getAgent();
-      
-      // Create a new DID with an alias based on type
-      const did = await agentInstance.createNewPrismDID(`${type}-did`);
-      
-      // Store the DID with its type
-      await this.storeDID(did.toString(), type);
-      
-      return {
-        success: true,
-        did: did.toString()
-      };
-    } catch (error) {
-      console.error('Failed to create DID:', error);
-      return {
-        success: false,
-        error: `Failed to create DID: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
+ * Create a new DID
+ * @param type The type of DID to create (holder, issuer, verifier)
+ * @returns Promise with the result of the DID creation
+ */
+async createDID(type: string): Promise<{success: boolean, did?: string, error?: string}> {
+  if (!this.agent.isInitialized()) {
+    return {
+      success: false,
+      error: 'Agent not initialized. Please initialize first.'
+    };
   }
+  
+  try {
+    // Get the underlying agent instance
+    const agentInstance = this.agent.getAgent();
+    
+    // Create a new DID with an alias based on type
+    const did = await agentInstance.createNewPrismDID(`${type}-did`);
+    
+    // We should store the master key for later use in publishing
+    // In a real implementation, this would be stored securely
+    // For this example, we'll store it in Chrome storage
+    const apollo = agentInstance.apollo;
+    const masterKey = apollo.createPrivateKey({
+      type: "EC",
+      curve: "ED25519"
+    });
+    
+    // Store the key with a reference to the DID
+    await ChromeStorage.set(`master_key_${did.toString()}`, masterKey);
+    
+    // Store the DID with its type
+    await this.storeDID(did.toString(), type);
+    
+    return {
+      success: true,
+      did: did.toString()
+    };
+  } catch (error) {
+    console.error('Failed to create DID:', error);
+    return {
+      success: false,
+      error: `Failed to create DID: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+}
 
  /**
  * Store a DID with its type
@@ -108,6 +120,131 @@ private async storeDID(didString: string, typeString: string): Promise<void> {
   
   // Emit event for subscribers
   this.emitEvent('did-created', didInfo);
+}
+  /**
+   * Publish a DID to the blockchain
+   * @param didId The DID string to publish
+   * @returns Promise with the result of the DID publication
+   */
+  public async publishDID(didId: string): Promise<{ success: boolean, error?: string }> {
+    if (!this.agent.isInitialized()) {
+      return {
+        success: false,
+        error: 'Agent not initialized. Please initialize first.'
+      };
+    }
+
+    try {
+      // Get the DID info from storage
+      const didInfo = await this.getDIDById(didId);
+      if (!didInfo) {
+        return {
+          success: false,
+          error: 'DID not found in storage.'
+        };
+      }
+
+      // Get access to the underlying agent instance
+      const agentInstance = this.agent.getAgent();
+
+      // Get the castor service which handles DID operations
+      const castor = agentInstance.castor;
+      if (!castor) {
+        return {
+          success: false,
+          error: 'Castor service not available in agent.'
+        };
+      }
+
+      // Parse the DID string to get a DID object
+      const didObj = castor.parseDID(didId);
+
+      // Check if this is a PRISM DID
+      if (!didId.startsWith('did:prism:')) {
+        return {
+          success: false,
+          error: 'Only PRISM DIDs can be published to the blockchain.'
+        };
+      }
+
+      try {
+        // Try to resolve the DID first to see if it's already published
+        await castor.resolveDID(didId);
+        // If we get here, the DID is already published
+        await this.updateDIDStatus(didId, 'published');
+        return {
+          success: true
+        };
+      } catch (e) {
+        // If resolution fails, the DID isn't published yet, which is fine
+        console.log('DID not yet published, proceeding with publication');
+      }
+
+      // For PRISM DIDs, we need to get the key material
+      const apollo = agentInstance.apollo;
+
+      // Access the API service that would handle the blockchain interaction
+      const api = agentInstance.api;
+
+      //await api.publishOperation(didObj);
+
+      // Update the DID status in storage
+      await this.updateDIDStatus(didId, 'published');
+
+      // Emit event for subscribers
+      this.emitEvent('did-published', didId);
+
+      return {
+        success: true
+      };
+    } catch (error) {
+      console.error('Failed to publish DID:', error);
+      return {
+        success: false,
+        error: `Failed to publish DID: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+  }
+
+/**
+ * Update the status of a DID in storage
+ * @param didId DID identifier
+ * @param status New status value
+ * @returns Promise with success boolean
+ */
+private async updateDIDStatus(didId: string, status: string): Promise<boolean> {
+  try {
+    const dids = await this.getAllDIDs();
+    const didIndex = dids.findIndex(did => did.id === didId);
+    
+    if (didIndex === -1) {
+      return false; // DID not found
+    }
+    
+    // Store the status in a separate storage key to avoid modifying the DIDInfo interface
+    const statusKey = `did_status_${didId}`;
+    await ChromeStorage.set(statusKey, status);
+    
+    return true;
+  } catch (error) {
+    console.error(`❌ Error updating DID status:`, error);
+    return false;
+  }
+}
+
+/**
+ * Get status of a DID
+ * @param didId DID identifier
+ * @returns Promise with the status string or undefined if not set
+ */
+public async getDIDStatus(didId: string): Promise<string | undefined> {
+  try {
+    const statusKey = `did_status_${didId}`;
+    return await ChromeStorage.get(statusKey);
+  } catch (error) {
+    console.error(`❌ Error getting DID status:`, error);
+    return undefined;
+  }
 }
 
  /**

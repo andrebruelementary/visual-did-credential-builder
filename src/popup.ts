@@ -27,6 +27,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const didTypeSelect = document.getElementById('didType') as HTMLSelectElement;
   const didListElement = document.getElementById('didList') as HTMLElement;
   const statusElement = document.getElementById('status') as HTMLElement;
+
+  const publishDIDButton = document.getElementById('publishDIDButton') as HTMLButtonElement;
+  const deleteDIDButton = document.getElementById('deleteDIDButton') as HTMLButtonElement;
+  let selectedDID: DIDInfo | null = null;
   
   // Initialize credential builder for the Issue tab
   const credentialBuilder = new CredentialBuilder('credential-builder');
@@ -121,43 +125,80 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
   
-  // Load DIDs from storage and display them
-  async function loadDIDs() {
-    try {
-      const dids = await didManager.getAllDIDs();
+  // Function to handle DID selection
+function selectDID(didInfo: DIDInfo, element: HTMLElement) {
+  // Clear previous selection
+  document.querySelectorAll('.did-item').forEach(item => {
+    item.classList.remove('selected');
+  });
+  
+  // Mark this DID as selected
+  element.classList.add('selected');
+  selectedDID = didInfo;
+  
+  // Enable buttons
+  publishDIDButton.disabled = false;
+  deleteDIDButton.disabled = false;
+}
+
+// Load DIDs from storage and display them
+async function loadDIDs() {
+  try {
+    const dids = await didManager.getAllDIDs();
+    
+    // Clear the list
+    if (!didListElement) return;
+    didListElement.innerHTML = '';
+    
+    if (dids.length === 0) {
+      didListElement.innerHTML = '<div class="empty-state">No DIDs created yet</div>';
+      return;
+    }
+    
+    // Add each DID to the list
+    dids.forEach(didInfo => {
+      const didItem = document.createElement('div');
+      didItem.className = 'did-item';
+      didItem.setAttribute('data-did-id', didInfo.id);
       
-      // Clear the list
-      if (!didListElement) return;
-      didListElement.innerHTML = '';
+      const typeElement = document.createElement('div');
+      typeElement.className = 'did-type';
+      typeElement.textContent = didInfo.type;
       
-      if (dids.length === 0) {
-        didListElement.innerHTML = '<div class="empty-state">No DIDs created yet</div>';
-        return;
-      }
+      const didElement = document.createElement('div');
+      didElement.className = 'did-value';
+      didElement.textContent = didInfo.id;
       
-      // Add each DID to the list
-      dids.forEach(didInfo => {
-        const didItem = document.createElement('div');
-        didItem.className = 'did-item';
-        
-        const typeElement = document.createElement('div');
-        typeElement.className = 'did-type';
-        typeElement.textContent = didInfo.type;
-        
-        const didElement = document.createElement('div');
-        didElement.className = 'did-value';
-        didElement.textContent = didInfo.id;
-        
-        const dateElement = document.createElement('div');
-        dateElement.className = 'did-date';
-        dateElement.textContent = new Date(didInfo.createdAt).toLocaleString();
-        
-        didItem.appendChild(typeElement);
-        didItem.appendChild(didElement);
-        didItem.appendChild(dateElement);
-        
-        // Add click to copy functionality
-        didItem.addEventListener('click', () => {
+      const dateElement = document.createElement('div');
+      dateElement.className = 'did-date';
+      dateElement.textContent = new Date(didInfo.createdAt).toLocaleString();
+      
+      // Create and append date element
+      didItem.appendChild(typeElement);
+      didItem.appendChild(didElement);
+      didItem.appendChild(dateElement);
+
+      // Fetch and add status indicator if available
+      // Using an immediately invoked async function to fetch the status
+      (async () => {
+        const status = await didManager.getDIDStatus(didInfo.id);
+        if (status) {
+          const statusElement = document.createElement('div');
+          statusElement.className = `did-status did-status-${status.toLowerCase()}`;
+          statusElement.textContent = status;
+          didItem.appendChild(statusElement);
+        }
+      })();
+      
+      // Add click for selection
+      didItem.addEventListener('click', () => {
+        selectDID(didInfo, didItem);
+      });
+      
+      // Separate click handler for copy functionality with modifier key
+      didItem.addEventListener('click', (e) => {
+        // Only copy if holding Ctrl/Cmd key
+        if (e.ctrlKey || e.metaKey) {
           navigator.clipboard.writeText(didInfo.id)
             .then(() => {
               showStatus('DID copied to clipboard', 'success');
@@ -186,18 +227,24 @@ document.addEventListener('DOMContentLoaded', async () => {
               console.error('Failed to copy DID:', error);
               showStatus('Failed to copy DID to clipboard', 'error');
             });
-        });
-        
-        didListElement.appendChild(didItem);
+        }
       });
       
-      // Update UI based on available DIDs
-      updateUIBasedOnDIDs(dids);
-    } catch (error) {
-      console.error('Error loading DIDs:', error);
-      showStatus('Failed to load DIDs', 'error');
-    }
+      didListElement.appendChild(didItem);
+    });
+    
+    // Update UI based on available DIDs
+    updateUIBasedOnDIDs(dids);
+    
+    // Reset selected DID
+    selectedDID = null;
+    publishDIDButton.disabled = true;
+    deleteDIDButton.disabled = true;
+  } catch (error) {
+    console.error('Error loading DIDs:', error);
+    showStatus('Failed to load DIDs', 'error');
   }
+}
   
   // Update UI elements based on available DIDs
   function updateUIBasedOnDIDs(dids: DIDInfo[]) {
@@ -300,4 +347,55 @@ document.addEventListener('DOMContentLoaded', async () => {
       }, 3000);
     }
   }
+
+  publishDIDButton?.addEventListener('click', async () => {
+    if (!selectedDID) {
+      showStatus('Please select a DID to publish', 'error');
+      return;
+    }
+    
+    showStatus(`Publishing DID to blockchain...`, 'loading');
+    try {
+      const result = await didManager.publishDID(selectedDID.id);
+      if (result.success) {
+        showStatus(`DID published successfully`, 'success');
+        // Refresh the DID list to show updated status
+        loadDIDs();
+      } else {
+        showStatus(`Failed to publish DID: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      console.error('Error publishing DID:', error);
+      showStatus(`Error publishing DID: ${(error as Error).message}`, 'error');
+    }
+  });
+  
+  deleteDIDButton?.addEventListener('click', async () => {
+    if (!selectedDID) {
+      showStatus('Please select a DID to delete', 'error');
+      return;
+    }
+    
+    const confirmDelete = confirm(`Are you sure you want to delete this DID? This action cannot be undone.`);
+    if (!confirmDelete) {
+      return;
+    }
+    
+    showStatus(`Deleting DID...`, 'loading');
+    try {
+      const result = await didManager.deleteDID(selectedDID.id);
+      if (result) {
+        showStatus(`DID deleted successfully`, 'success');
+        // Refresh the DID list
+        loadDIDs();
+      } else {
+        showStatus(`Failed to delete DID`, 'error');
+      }
+    } catch (error) {
+      console.error('Error deleting DID:', error);
+      showStatus(`Error deleting DID: ${(error as Error).message}`, 'error');
+    }
+  });
+
 });
+

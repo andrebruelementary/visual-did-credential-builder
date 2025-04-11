@@ -705,3 +705,16 @@ select.input-field {
   border-radius: 4px;
   margin: 10px 0;
 }
+
+.did-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border-color);
+}
+
+.did-item.selected {
+  background-color: #e8f5ff;
+  border-left: 3px solid var(--primary-color);
+}

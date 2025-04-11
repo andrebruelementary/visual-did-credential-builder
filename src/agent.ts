@@ -50,6 +50,44 @@ export class Agent {
   }
 
   /**
+   * Get the Castor service
+   * For DID operations like creation and resolution
+   */
+  public getCastor(): any {
+    if (!this.castor) {
+      throw new Error('Castor not initialized');
+    }
+    return this.castor;
+  }
+
+  /**
+   * Get the Apollo service
+   * For cryptographic operations
+   */
+  public getApollo(): any {
+    if (!this.apollo) {
+      throw new Error('Apollo not initialized');
+    }
+    return this.apollo;
+  }
+
+  /**
+   * Get the API service
+   * For blockchain operations
+   */
+  public getAPI(): any {
+    // In the real implementation, you would access the API service
+    // from the agent. For now, we'll create a placeholder
+    return {
+      submitOperation: async (atalaObject: Uint8Array) => {
+        console.log("Submitting operation to blockchain:", atalaObject);
+        // In a real implementation, this would submit to the blockchain
+        return true;
+      }
+    };
+  }
+
+  /**
    * Get the agent instance (if initialized)
    */
   public getAgent(): SDK.Agent {
