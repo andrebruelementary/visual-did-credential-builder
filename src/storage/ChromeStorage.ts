@@ -1,4 +1,3 @@
-// src/storage/ChromeStorage.ts
 /**
 * Helper class for interacting with Chrome storage API
 * Provides a Promise-based wrapper around the chrome.storage.local API
@@ -13,14 +12,19 @@ export class ChromeStorage {
     public static async set(key: string, value: any): Promise<void> {
       return new Promise((resolve, reject) => {
         try {
+          console.log(`Setting Chrome storage for key "${key}":`, value);
+          
           chrome.storage.local.set({ [key]: value }, () => {
             if (chrome.runtime.lastError) {
+              console.error(`Chrome storage set error for key "${key}":`, chrome.runtime.lastError);
               reject(chrome.runtime.lastError);
             } else {
+              console.log(`Chrome storage set successful for key "${key}"`);
               resolve();
             }
           });
         } catch (error) {
+          console.error(`Error setting Chrome storage for key "${key}":`, error);
           reject(error);
         }
       });

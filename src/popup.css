@@ -718,3 +718,49 @@ select.input-field {
   background-color: #e8f5ff;
   border-left: 3px solid var(--primary-color);
 }
+
+.did-status-container {
+  margin-top: 15px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 15px;
+}
+
+.did-status {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.did-status-pending {
+  background-color: #fff8e1;
+  color: #ff8f00;
+}
+
+.did-status-published {
+  background-color: #e8f5e9;
+  color: #1b5e20;
+}
+
+.did-status-failed {
+  background-color: #ffebee;
+  color: #b71c1c;
+}
+
+.status-icon {
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.status-text {
+  font-weight: 500;
+}
+
+.status-did {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #666;
+  word-break: break-all;
+}

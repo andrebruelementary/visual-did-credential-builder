@@ -1,4 +1,3 @@
-// src/components/credentialBuilder/credentialBuilder.ts
 import { CredentialTemplate, TemplateProperty } from '../../models/template';
 import { Credential, CredentialProperty } from '../../models/credential';
 import { Contact } from '../../models/contact';
@@ -6,6 +5,9 @@ import { StorageService } from '../../services/storageService';
 import { TemplateService } from '../../services/templateService';
 import './credentialBuilder.css';
 import { TemplateSelector } from '../templateSelector/templateSelector';
+import { Agent } from '../../agent';
+import { DIDManager, DIDType } from '../../didManager';
+import { ChromeStorage } from '../../storage/ChromeStorage';
 
 export class CredentialBuilder {
   private container: HTMLElement;
@@ -215,13 +217,37 @@ export class CredentialBuilder {
     };
   }
   
-  private issueCredential(): void {
+  private async issueCredential(): Promise<void> {
     const credential = this.gatherCredentialData();
     if (!credential) return;
     
-    // In a real implementation, we would call a service to issue the credential
-    // For now, just show the confirmation dialog
-    this.showCredentialConfirmation(credential);
+    try {
+      // Get necessary services from agent
+      const agent = new Agent(); // Get agent instance
+      if (!agent.isInitialized()) {
+        await agent.initialize();
+      }
+      
+      const storage = new ChromeStorage();
+
+      // Get issuer DID
+      const didManager = new DIDManager(agent, storage);
+      const issuerDIDInfo = await didManager.getFirstDIDOfType(DIDType.ISSUER);
+      
+      if (!issuerDIDInfo) {
+        alert('No issuer DID available. Please create an issuer DID first.');
+        return;
+      }
+      
+      // Show the confirmation dialog with mock issuance
+      this.showCredentialConfirmation(credential);
+      
+      // Save the credential to storage
+      await StorageService.saveCredential(credential);
+    } catch (error) {
+      console.error('Error issuing credential:', error);
+      alert('Failed to issue credential. Please try again.');
+    }
   }
   
   private showCredentialConfirmation(credential: Credential): void {

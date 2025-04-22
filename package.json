@@ -35,7 +35,7 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
-    "@hyperledger/identus-edge-agent-sdk": "^6.5.1",
+    "@hyperledger/identus-sdk": "^7.0.0-rc.2",
     "url": "^0.11.4"
   }
 }

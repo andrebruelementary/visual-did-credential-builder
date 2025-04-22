@@ -1,4 +1,3 @@
-// src/popup.ts
 import { Agent } from './agent';
 import { DIDInfo, DIDManager, DIDType } from './didManager';
 import { TabManager } from './components/TabManager';
@@ -6,6 +5,7 @@ import { ChromeStorage } from './storage/ChromeStorage';
 import { CredentialBuilder } from './components/credentialBuilder/credentialBuilder';
 import { Contact } from './models/contact';
 import { StorageService } from './services/storageService';
+import { DIDStatus } from './components/DIDStatus';
 
 /**
  * Main entry point for the extension popup
@@ -100,7 +100,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Create DID when the Create DID button is clicked
   createDIDButton?.addEventListener('click', async () => {
     const didType = didTypeSelect.value;
-    
+    console.log(`User selected DID type: ${didType}`);
     showStatus(`Creating ${didType} DID...`, 'loading');
     try {
       const result = await didManager.createDID(didType);
@@ -126,31 +126,41 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   
   // Function to handle DID selection
-function selectDID(didInfo: DIDInfo, element: HTMLElement) {
-  // Clear previous selection
-  document.querySelectorAll('.did-item').forEach(item => {
-    item.classList.remove('selected');
-  });
-  
-  // Mark this DID as selected
-  element.classList.add('selected');
-  selectedDID = didInfo;
-  
-  // Enable buttons
-  publishDIDButton.disabled = false;
-  deleteDIDButton.disabled = false;
-}
+  function selectDID(didInfo: DIDInfo, element: HTMLElement) {
+    console.log(`Selecting DID:`, didInfo);
+    
+    // Clear previous selection
+    document.querySelectorAll('.did-item').forEach(item => {
+      item.classList.remove('selected');
+    });
+    
+    // Mark this DID as selected
+    element.classList.add('selected');
+    selectedDID = didInfo;
+    
+    // Enable buttons
+    publishDIDButton.disabled = false;
+    deleteDIDButton.disabled = false;
+    
+    console.log(`Selected DID set to:`, selectedDID);
+  }
 
 // Load DIDs from storage and display them
 async function loadDIDs() {
   try {
+    console.log("Loading DIDs...");
     const dids = await didManager.getAllDIDs();
+    console.log("DIDs loaded:", dids);
     
     // Clear the list
-    if (!didListElement) return;
+    if (!didListElement) {
+      console.error("didListElement not found");
+      return;
+    }
     didListElement.innerHTML = '';
     
     if (dids.length === 0) {
+      console.log("No DIDs found");
       didListElement.innerHTML = '<div class="empty-state">No DIDs created yet</div>';
       return;
     }
@@ -355,12 +365,28 @@ async function loadDIDs() {
     }
     
     showStatus(`Publishing DID to blockchain...`, 'loading');
+    
     try {
-      const result = await didManager.publishDID(selectedDID.id);
+      const result = await didManager.publishDID(selectedDID!.id);
+      
       if (result.success) {
-        showStatus(`DID published successfully`, 'success');
-        // Refresh the DID list to show updated status
-        loadDIDs();
+        showStatus(`DID publishing initiated`, 'info');
+        
+        // Initialize status component
+        const didStatus = new DIDStatus('did-status-container');
+        
+        // Start polling for blockchain confirmation
+        didManager.pollBlockchainStatus(selectedDID!.id, (status) => {
+          didStatus.updateStatus(status, selectedDID!.id);
+          
+          if (status === 'published') {
+            showStatus(`DID published successfully to blockchain`, 'success');
+            // Refresh the DID list to show updated status
+            loadDIDs();
+          } else if (status === 'failed') {
+            showStatus(`DID publishing timed out`, 'error');
+          }
+        });
       } else {
         showStatus(`Failed to publish DID: ${result.error}`, 'error');
       }
@@ -383,6 +409,8 @@ async function loadDIDs() {
     
     showStatus(`Deleting DID...`, 'loading');
     try {
+      console.log(`Attempting to delete DID: ${selectedDID.id}`);
+    
       const result = await didManager.deleteDID(selectedDID.id);
       if (result) {
         showStatus(`DID deleted successfully`, 'success');
