@@ -8,29 +8,30 @@ import { ChromeStorage } from './storage/ChromeStorage';
 * Types of DIDs for different purposes
 */
 export enum DIDType {
- HOLDER = 'holder',   // For receiving credentials
- ISSUER = 'issuer',   // For issuing credentials
- VERIFIER = 'verifier' // For verifying credentials
+  HOLDER = 'holder',   // For receiving credentials
+  ISSUER = 'issuer',   // For issuing credentials
+  VERIFIER = 'verifier' // For verifying credentials
 }
 
 /**
 * Interface for stored DID information
 */
 export interface DIDInfo {
- id: string;
- alias: string;
- type: DIDType;
- createdAt: string;
+  id: string;
+  alias: string;
+  type: DIDType;
+  createdAt: string;
+  isContact?: boolean; // Flag to indicate if this DID is saved as a contact
 }
 
 /**
 * Manages creation and storage of DIDs
 */
 export class DIDManager {
- private eventListeners: Map<string, Set<Function>> = new Map();
- private agent: Agent;
- private storage: ChromeStorage;
-  
+  private eventListeners: Map<string, Set<Function>> = new Map();
+  private agent: Agent;
+  private storage: ChromeStorage;
+
   /**
    * Initialize the DID Manager
    * @param agent An initialized Agent instance
@@ -41,46 +42,81 @@ export class DIDManager {
     this.storage = storage;
   }
 
- /**
- * Create a new DID
- * @param type The type of DID to create (holder, issuer, verifier)
- * @returns Promise with the result of the DID creation
- */
- async createDID(type: string): Promise<{success: boolean, did?: string, error?: string}> {
-  console.log('Creating DID of type:', type);
-  
-  if (!this.agent.isInitialized()) {
-    return {
-      success: false,
-      error: 'Agent not initialized. Please initialize first.'
-    };
+  /**
+  * Create a new DID
+  * @param type The type of DID to create (holder, issuer, verifier)
+  * @param alias Optional human-readable alias for the DID
+  * @returns Promise with the result of the DID creation
+  */
+  async createDID(type: string, alias?: string): Promise<{ success: boolean, did?: string, error?: string }> {
+    console.log(`Creating DID of type: ${type} with alias: ${alias}`);
+
+    if (!this.agent.isInitialized()) {
+      return {
+        success: false,
+        error: 'Agent not initialized. Please initialize first.'
+      };
+    }
+
+    try {
+      // Get a proxy to the agent functionality
+      const agentProxy = this.agent.getAgent();
+
+      // Generate default alias if not provided
+      const didAlias = alias || `${type}-did-${Date.now()}`;
+
+      // Use the direct method with explicit type
+      const did = await agentProxy.createDIDWithType(
+        type as 'holder' | 'issuer' | 'verifier',
+        didAlias
+      );
+
+      // Convert the DID to string
+      const didString = did.toString();
+
+      return {
+        success: true,
+        did: didString
+      };
+    } catch (error) {
+      console.error('Failed to create DID:', error);
+      return {
+        success: false,
+        error: `Failed to create DID: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
   }
-  
-  try {
-    // Get a proxy to the agent functionality
-    const agentProxy = this.agent.getAgent();
-    
-    // Use the direct method with explicit type
-    const did = await agentProxy.createDIDWithType(
-      type as 'holder' | 'issuer' | 'verifier', 
-      `${type}-did-${Date.now()}`
-    );
-    
-    // Convert the DID to string
-    const didString = did.toString();
-    
-    return {
-      success: true,
-      did: didString
-    };
-  } catch (error) {
-    console.error('Failed to create DID:', error);
-    return {
-      success: false,
-      error: `Failed to create DID: ${error instanceof Error ? error.message : String(error)}`
-    };
+
+  /**
+   * Update the alias of a DID
+   * @param didId DID identifier
+   * @param newAlias New alias to assign
+   * @returns Promise with success boolean
+   */
+  public async updateDIDAlias(didId: string, newAlias: string): Promise<boolean> {
+    try {
+      const dids = await this.getAllDIDs();
+      const didIndex = dids.findIndex(did => did.id === didId);
+
+      if (didIndex === -1) {
+        return false; // DID not found
+      }
+
+      // Update the alias
+      dids[didIndex].alias = newAlias;
+
+      // Store updated list
+      await ChromeStorage.set('dids', dids);
+
+      // Emit event for subscribers
+      this.emitEvent('did-updated', dids[didIndex]);
+
+      return true;
+    } catch (error) {
+      console.error(`Error updating DID alias:`, error);
+      return false;
+    }
   }
-}
 
   /**
    * Publish a DID to the blockchain
@@ -94,7 +130,7 @@ export class DIDManager {
         error: 'Agent not initialized. Please initialize first.'
       };
     }
-  
+
     try {
       // Get the DID info from storage
       const didInfo = await this.getDIDById(didId);
@@ -104,7 +140,7 @@ export class DIDManager {
           error: 'DID not found in storage.'
         };
       }
-  
+
       // Get the castor service which handles DID operations
       const castor = this.agent.getCastor();
       if (!castor) {
@@ -113,10 +149,10 @@ export class DIDManager {
           error: 'Castor service not available in agent.'
         };
       }
-  
+
       // Parse the DID string to get a DID object
       const didObj = castor.parseDID(didId);
-  
+
       // Check if this is a PRISM DID
       if (!didId.startsWith('did:prism:')) {
         return {
@@ -124,7 +160,7 @@ export class DIDManager {
           error: 'Only PRISM DIDs can be published to the blockchain.'
         };
       }
-  
+
       try {
         // Try to resolve the DID first to see if it's already published
         await castor.resolveDID(didId);
@@ -137,16 +173,16 @@ export class DIDManager {
         // If resolution fails, the DID isn't published yet, which is fine
         console.log('DID not yet published, proceeding with publication');
       }
-  
+
       const published = await this.agent.publishDID(didObj);
-      
+
       if (published) {
         // Update the DID status in storage
         await this.updateDIDStatus(didId, 'publishing');
-        
+
         // Emit event for subscribers
         this.emitEvent('did-publishing', didId);
-        
+
         return { success: true };
       } else {
         return {
@@ -162,7 +198,7 @@ export class DIDManager {
       };
     }
   }
-  
+
   /**
    * Check blockchain status of a DID
    * @param didId DID identifier
@@ -173,10 +209,10 @@ export class DIDManager {
       if (!this.agent.isInitialized()) {
         return 'unknown';
       }
-      
+
       // Get the Castor service
       const castor = this.agent.getCastor();
-      
+
       // Try to resolve the DID
       try {
         await castor.resolveDID(didId);
@@ -186,12 +222,12 @@ export class DIDManager {
       } catch (error) {
         // Check local status
         const currentStatus = await this.getDIDStatus(didId);
-        
+
         // If we've attempted to publish, mark as pending
         if (currentStatus === 'publishing') {
           return 'pending';
         }
-        
+
         return 'unpublished';
       }
     } catch (error) {
@@ -199,7 +235,7 @@ export class DIDManager {
       return 'unknown';
     }
   }
-  
+
   /**
    * Start polling for blockchain confirmation
    * @param didId DID identifier
@@ -207,26 +243,26 @@ export class DIDManager {
    * @returns Polling ID to stop polling
    */
   public pollBlockchainStatus(
-    didId: string, 
-    callback: (status: string) => void, 
+    didId: string,
+    callback: (status: string) => void,
     maxAttempts: number = 10
   ): number {
     let attempts = 0;
-    
+
     // Set initial status
     this.updateDIDStatus(didId, 'publishing');
     callback('pending');
-    
+
     const pollId = window.setInterval(async () => {
       attempts++;
-      
+
       const status = await this.checkBlockchainStatus(didId);
       callback(status);
-      
+
       if (status === 'published' || attempts >= maxAttempts) {
         // If published or max attempts reached, stop polling
         clearInterval(pollId);
-        
+
         if (attempts >= maxAttempts && status !== 'published') {
           // If max attempts reached and not published, mark as failed
           await this.updateDIDStatus(didId, 'failed');
@@ -234,226 +270,284 @@ export class DIDManager {
         }
       }
     }, 5000); // Poll every 5 seconds
-    
+
     return pollId;
   }
-  
-/**
- * Update the status of a DID in storage
- * @param didId DID identifier
- * @param status New status value
- * @returns Promise with success boolean
- */
-private async updateDIDStatus(didId: string, status: string): Promise<boolean> {
-  try {
-    const dids = await this.getAllDIDs();
-    const didIndex = dids.findIndex(did => did.id === didId);
-    
-    if (didIndex === -1) {
-      return false; // DID not found
-    }
-    
-    // Store the status in a separate storage key to avoid modifying the DIDInfo interface
-    const statusKey = `did_status_${didId}`;
-    await ChromeStorage.set(statusKey, status);
-    
-    return true;
-  } catch (error) {
-    console.error(`❌ Error updating DID status:`, error);
-    return false;
-  }
-}
 
-/**
- * Get status of a DID
- * @param didId DID identifier
- * @returns Promise with the status string or undefined if not set
- */
-public async getDIDStatus(didId: string): Promise<string | undefined> {
-  try {
-    const statusKey = `did_status_${didId}`;
-    return await ChromeStorage.get(statusKey);
-  } catch (error) {
-    console.error(`❌ Error getting DID status:`, error);
-    return undefined;
-  }
-}
+  /**
+   * Update the status of a DID in storage
+   * @param didId DID identifier
+   * @param status New status value
+   * @returns Promise with success boolean
+   */
+  private async updateDIDStatus(didId: string, status: string): Promise<boolean> {
+    try {
+      const dids = await this.getAllDIDs();
+      const didIndex = dids.findIndex(did => did.id === didId);
 
- /**
-  * Get all stored DIDs
-  * @returns Promise with array of DID info
-  */
- public async getAllDIDs(): Promise<DIDInfo[]> {
-   const dids = await ChromeStorage.get('dids') || [];
-   return dids;
- }
+      if (didIndex === -1) {
+        return false; // DID not found
+      }
 
- /**
-  * Get DIDs by type
-  * @param type DID type to filter
-  * @returns Promise with array of matching DIDs
-  */
- public async getDIDsByType(type: DIDType): Promise<DIDInfo[]> {
-   const dids = await this.getAllDIDs();
-   return dids.filter(did => did.type === type);
- }
+      // Store the status in a separate storage key to avoid modifying the DIDInfo interface
+      const statusKey = `did_status_${didId}`;
+      await ChromeStorage.set(statusKey, status);
 
- /**
-  * Get a specific DID by ID
-  * @param id DID identifier
-  * @returns Promise with DID info if found
-  */
- public async getDIDById(id: string): Promise<DIDInfo | undefined> {
-   const dids = await this.getAllDIDs();
-   return dids.find(did => did.id === id);
- }
-
- /**
-  * Check if a DID of specific type exists
-  * @param type DID type to check
-  * @returns Promise with boolean result
-  */
- public async hasDIDOfType(type: DIDType): Promise<boolean> {
-   const dids = await this.getDIDsByType(type);
-   return dids.length > 0;
- }
-
- /**
-  * Get the first DID of a specific type
-  * @param type DID type to get
-  * @returns Promise with DID info if found
-  */
- public async getFirstDIDOfType(type: DIDType): Promise<DIDInfo | undefined> {
-   const dids = await this.getDIDsByType(type);
-   return dids.length > 0 ? dids[0] : undefined;
- }
-
- /**
-  * Delete a DID
-  * @param id DID identifier to delete
-  * @returns Promise with success boolean
-  */
- public async deleteDID(id: string): Promise<boolean> {
-  try {
-    console.log(`Deleting DID with ID: ${id}`);
-    
-    // Get all DIDs first
-    const dids = await this.getAllDIDs();
-    console.log(`Current DIDs before deletion:`, dids);
-    
-    // Find the DID to delete by ID
-    const didToDelete = dids.find(did => did.id === id);
-    if (!didToDelete) {
-      console.warn(`DID with ID ${id} not found in storage`);
+      return true;
+    } catch (error) {
+      console.error(`❌ Error updating DID status:`, error);
       return false;
     }
-    
-    // Filter out the DID using both id AND alias for more precise matching
-    const filteredDIDs = dids.filter(did => !(did.id === id && did.alias === didToDelete.alias));
-    console.log(`Filtered DIDs after deletion:`, filteredDIDs);
-    
-    if (dids.length === filteredDIDs.length) {
-      console.warn(`DID with ID ${id} and alias ${didToDelete.alias} not found in storage`);
-      return false; // DID not found
-    }
-    
-    // Store the updated list
-    await ChromeStorage.set('dids', filteredDIDs);
-    console.log(`DIDs successfully updated in storage`);
-    
-    // Also delete the private key for this DID
-    try {
-      await ChromeStorage.remove(`did_private_key_${id}`);
-      await ChromeStorage.remove(`master_key_${id}`);
-    } catch (error) {
-      // Just log this error but don't fail the operation
-      console.warn(`Error removing keys for DID ${id}:`, 
-                 error instanceof Error ? error.message : String(error));
-    }
-    
-    // Emit event for subscribers
-    this.emitEvent('did-deleted', id);
-    
-    return true;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`❌ Error deleting DID:`, errorMessage);
-    return false;
   }
-}
 
- /**
-  * Format a DID object or string consistently
-  * @param didObj DID object or string
-  * @returns Formatted DID string
-  */
- public static formatDID(didObj: any): string {
-   // If it's already a string, return it
-   if (typeof didObj === 'string') return didObj;
-   
-   // If it's an object, try to extract the DID string
-   if (didObj && typeof didObj === 'object') {
-     try {
-       // If it's a DID object, use toString
-       if (didObj instanceof SDK.Domain.DID) {
-         return didObj.toString();
-       }
-       
-       // Common DID object structures
-       if (didObj.id) return didObj.id;
-       if (didObj.did) return didObj.did;
-       if (didObj.uri) return didObj.uri;
-       
-       // Try to stringify the object for debugging
-       return JSON.stringify(didObj);
-     } catch (e) {
-       console.error('Error formatting DID object:', e);
-     }
-   }
-   
-   // Fallback
-   return String(didObj);
- }
+  /**
+   * Get status of a DID
+   * @param didId DID identifier
+   * @returns Promise with the status string or undefined if not set
+   */
+  public async getDIDStatus(didId: string): Promise<string | undefined> {
+    try {
+      const statusKey = `did_status_${didId}`;
+      return await ChromeStorage.get(statusKey);
+    } catch (error) {
+      console.error(`❌ Error getting DID status:`, error);
+      return undefined;
+    }
+  }
 
- /**
-  * Register event listener
-  * @param event Event name
-  * @param callback Callback function
-  */
- public on(event: string, callback: Function): void {
-   if (!this.eventListeners.has(event)) {
-     this.eventListeners.set(event, new Set());
-   }
-   this.eventListeners.get(event)?.add(callback);
- }
+  /**
+   * Get all stored DIDs
+   * @returns Promise with array of DID info
+   */
+  public async getAllDIDs(): Promise<DIDInfo[]> {
+    const dids = await ChromeStorage.get('dids') || [];
+    return dids;
+  }
 
- /**
-  * Remove event listener
-  * @param event Event name
-  * @param callback Callback function
-  */
- public off(event: string, callback: Function): void {
-   if (this.eventListeners.has(event)) {
-     this.eventListeners.get(event)?.delete(callback);
-   }
- }
+  /**
+   * Get DIDs by type
+   * @param type DID type to filter
+   * @returns Promise with array of matching DIDs
+   */
+  public async getDIDsByType(type: DIDType): Promise<DIDInfo[]> {
+    const dids = await this.getAllDIDs();
+    return dids.filter(did => did.type === type);
+  }
 
- /**
-  * Emit event to listeners
-  * @param event Event name
-  * @param data Event data
-  */
- private emitEvent(event: string, data: any): void {
-   if (this.eventListeners.has(event)) {
-     this.eventListeners.get(event)?.forEach(callback => {
-       try {
-         callback(data);
-       } catch (e) {
-         console.error(`Error in event listener for ${event}:`, e);
-       }
-     });
-   }
- }
+  /**
+   * Get a specific DID by ID
+   * @param id DID identifier
+   * @returns Promise with DID info if found
+   */
+  public async getDIDById(id: string): Promise<DIDInfo | undefined> {
+    const dids = await this.getAllDIDs();
+    return dids.find(did => did.id === id);
+  }
+
+  /**
+   * Check if a DID of specific type exists
+   * @param type DID type to check
+   * @returns Promise with boolean result
+   */
+  public async hasDIDOfType(type: DIDType): Promise<boolean> {
+    const dids = await this.getDIDsByType(type);
+    return dids.length > 0;
+  }
+
+  /**
+   * Get the first DID of a specific type
+   * @param type DID type to get
+   * @returns Promise with DID info if found
+   */
+  public async getFirstDIDOfType(type: DIDType): Promise<DIDInfo | undefined> {
+    const dids = await this.getDIDsByType(type);
+    return dids.length > 0 ? dids[0] : undefined;
+  }
+
+  /**
+   * Delete a DID
+   * @param id DID identifier to delete
+   * @returns Promise with success boolean
+   */
+  public async deleteDID(id: string): Promise<boolean> {
+    try {
+      console.log(`Deleting DID with ID: ${id}`);
+
+      // Get all DIDs first
+      const dids = await this.getAllDIDs();
+      console.log(`Current DIDs before deletion:`, dids);
+
+      // Find the DID to delete by ID
+      const didToDelete = dids.find(did => did.id === id);
+      if (!didToDelete) {
+        console.warn(`DID with ID ${id} not found in storage`);
+        return false;
+      }
+
+      // Filter out the DID using both id AND alias for more precise matching
+      const filteredDIDs = dids.filter(did => !(did.id === id && did.alias === didToDelete.alias));
+      console.log(`Filtered DIDs after deletion:`, filteredDIDs);
+
+      if (dids.length === filteredDIDs.length) {
+        console.warn(`DID with ID ${id} and alias ${didToDelete.alias} not found in storage`);
+        return false; // DID not found
+      }
+
+      // Store the updated list
+      await ChromeStorage.set('dids', filteredDIDs);
+      console.log(`DIDs successfully updated in storage`);
+
+      // Also delete the private key for this DID
+      try {
+        await ChromeStorage.remove(`did_private_key_${id}`);
+        await ChromeStorage.remove(`master_key_${id}`);
+      } catch (error) {
+        // Just log this error but don't fail the operation
+        console.warn(`Error removing keys for DID ${id}:`,
+          error instanceof Error ? error.message : String(error));
+      }
+
+      // Emit event for subscribers
+      this.emitEvent('did-deleted', id);
+
+      return true;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`❌ Error deleting DID:`, errorMessage);
+      return false;
+    }
+  }
+
+  /**
+   * Format a DID object or string consistently
+   * @param didObj DID object or string
+   * @returns Formatted DID string
+   */
+  public static formatDID(didObj: any): string {
+    // If it's already a string, return it
+    if (typeof didObj === 'string') return didObj;
+
+    // If it's an object, try to extract the DID string
+    if (didObj && typeof didObj === 'object') {
+      try {
+        // If it's a DID object, use toString
+        if (didObj instanceof SDK.Domain.DID) {
+          return didObj.toString();
+        }
+
+        // Common DID object structures
+        if (didObj.id) return didObj.id;
+        if (didObj.did) return didObj.did;
+        if (didObj.uri) return didObj.uri;
+
+        // Try to stringify the object for debugging
+        return JSON.stringify(didObj);
+      } catch (e) {
+        console.error('Error formatting DID object:', e);
+      }
+    }
+
+    // Fallback
+    return String(didObj);
+  }
+
+  /**
+   * Register event listener
+   * @param event Event name
+   * @param callback Callback function
+   */
+  public on(event: string, callback: Function): void {
+    if (!this.eventListeners.has(event)) {
+      this.eventListeners.set(event, new Set());
+    }
+    this.eventListeners.get(event)?.add(callback);
+  }
+
+  /**
+   * Remove event listener
+   * @param event Event name
+   * @param callback Callback function
+   */
+  public off(event: string, callback: Function): void {
+    if (this.eventListeners.has(event)) {
+      this.eventListeners.get(event)?.delete(callback);
+    }
+  }
+
+  /**
+   * Emit event to listeners
+   * @param event Event name
+   * @param data Event data
+   */
+  private emitEvent(event: string, data: any): void {
+    if (this.eventListeners.has(event)) {
+      this.eventListeners.get(event)?.forEach(callback => {
+        try {
+          callback(data);
+        } catch (e) {
+          console.error(`Error in event listener for ${event}:`, e);
+        }
+      });
+    }
+  }
+
+  // Add these methods to the DIDManager class in didManager.ts
+
+  /**
+   * Mark or unmark a DID as a contact
+   * @param didId The DID identifier
+   * @param isContact Whether to mark as contact or not
+   * @returns Promise with success result
+   */
+  public async toggleContact(didId: string, isContact: boolean): Promise<boolean> {
+    try {
+      const dids = await this.getAllDIDs();
+      const didIndex = dids.findIndex(did => did.id === didId);
+
+      if (didIndex === -1) {
+        return false; // DID not found
+      }
+
+      // Update the contact flag
+      dids[didIndex].isContact = isContact;
+
+      // Store updated list
+      await ChromeStorage.set('dids', dids);
+
+      // Emit event for subscribers
+      this.emitEvent('did-contact-toggled', { did: dids[didIndex], isContact });
+
+      return true;
+    } catch (error) {
+      console.error(`Error toggling contact status for DID:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if a DID is marked as a contact
+   * @param didId DID identifier
+   * @returns Promise with boolean result
+   */
+  public async isContact(didId: string): Promise<boolean> {
+    try {
+      const did = await this.getDIDById(didId);
+      return did?.isContact === true;
+    } catch (error) {
+      console.error(`Error checking contact status for DID:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Get all DIDs marked as contacts
+   * @returns Promise with array of DID info objects
+   */
+  public async getContactDIDs(): Promise<DIDInfo[]> {
+    const dids = await this.getAllDIDs();
+    return dids.filter(did => did.isContact === true);
+  }
+
 }
 
 // Export a factory function
@@ -468,3 +562,5 @@ export function getDIDManager(agent?: Agent, storage?: ChromeStorage): DIDManage
   }
   return instance;
 }
+
+

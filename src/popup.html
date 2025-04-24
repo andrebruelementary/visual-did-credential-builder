@@ -1,15 +1,18 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
-  <title>Visual DID & Credential Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visual DID & Credential Builder</title>
   <link rel="stylesheet" href="popup.css">
 </head>
+
 <body>
   <div class="container">
     <div class="header">
-      <img src="icons/icon32.png" class="logo" alt="DID & Credential Manager Logo">
-      <h1>Visual DID & Credential Manager</h1>
+      <img src="icons/icon32.png" class="logo" alt="DID & Credential Builder Logo">
+      <h1>Visual DID & Credential Builder</h1>
     </div>
 
     <div class="tabs">
@@ -24,6 +27,9 @@
     <!-- Setup Tab -->
     <div class="tab-content active" id="setup-tab">
       <div class="card">
+        <h2>Initialize DID Environment</h2>
+        <p class="tab-description">Configure the connection to your mediator service to begin creating and managing
+          DIDs.</p>
         <div class="form-group">
           <label for="mediatorDID">Mediator DID:</label>
           <input type="text" id="mediatorDID" placeholder="Enter mediator DID from invitation" class="input-field">
@@ -37,6 +43,9 @@
     <!-- DIDs Tab -->
     <div class="tab-content" id="dids-tab">
       <div class="card">
+        <h2>Create & Manage DIDs</h2>
+        <p class="tab-description">Create decentralized identifiers (DIDs) for different purposes and manage their
+          lifecycle.</p>
         <div class="form-group">
           <label for="didType">DID Type:</label>
           <select id="didType" class="input-field">
@@ -45,6 +54,10 @@
             <option value="verifier">Verifier DID (for verifying credentials)</option>
           </select>
         </div>
+        <div class="form-group">
+          <label for="didAlias">DID Alias (Optional):</label>
+          <input type="text" id="didAlias" placeholder="Enter a human-readable name for this DID" class="input-field">
+        </div>
         <div class="button-container">
           <button id="createDIDButton" class="primary-button" disabled>Create DID</button>
         </div>
@@ -52,7 +65,7 @@
           <button id="publishDIDButton" class="secondary-button" disabled>Publish Selected DID</button>
           <button id="deleteDIDButton" class="secondary-button" disabled>Delete Selected DID</button>
         </div>
-        
+
         <h2>Your DIDs</h2>
         <div id="didList" class="did-list">
           <div class="empty-state">No DIDs created yet</div>
@@ -63,9 +76,11 @@
 
     <!-- Issue Tab -->
     <div class="tab-content" id="issue-tab">
+      <h2 class="page-title">Issue Verifiable Credentials</h2>
+      <p class="tab-description">Create and issue verifiable credentials to contacts using customizable templates.</p>
       <div class="app-layout">
         <div id="credential-builder" class="credential-builder"></div>
-        
+
         <div class="contact-section">
           <h2>Issue to contact</h2>
           <div class="contact-search">
@@ -82,6 +97,7 @@
     <div class="tab-content" id="verify-tab">
       <div class="card">
         <h2>Verify Credential</h2>
+        <p class="tab-description">Verify the authenticity of credentials presented by holders.</p>
         <div class="form-group">
           <label for="holderToVerify">Holder DID:</label>
           <input type="text" id="holderToVerify" placeholder="Enter holder's DID to verify" class="input-field">
@@ -101,7 +117,8 @@
   <template id="contact-item-template">
     <div class="contact-item">
       <div class="contact-avatar">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
           <circle cx="12" cy="7" r="4"></circle>
         </svg>
@@ -120,11 +137,15 @@
         <input type="text" class="property-value" placeholder="Custom value">
       </div>
       <button class="remove-property-btn icon-button">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
       </button>
     </div>
   </template>
-  
+
   <!-- Confirmation dialog template -->
   <template id="confirmation-dialog-template">
     <div class="dialog-overlay">
@@ -132,7 +153,11 @@
         <div class="dialog-header">
           <h2>Credential Issued</h2>
           <button class="close-dialog-btn icon-button">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
           </button>
         </div>
         <div class="dialog-body">
@@ -147,7 +172,7 @@
       </div>
     </div>
   </template>
-  
+
   <!-- Template Selector Dialog Template -->
   <template id="template-item-template">
     <div class="template-item">
@@ -158,21 +183,223 @@
       </div>
     </div>
   </template>
-  
+
   <!-- Template folder template -->
   <template id="template-folder-template">
     <div class="template-folder">
       <div class="folder-header">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
         <span class="folder-name"></span>
         <button class="icon-button expand-folder-btn">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
         </button>
       </div>
       <div class="folder-content hidden"></div>
     </div>
   </template>
 
+  <!-- Template for the contact import dialog -->
+  <template id="contact-import-dialog-template">
+    <div class="dialog-overlay contact-import-dialog">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <h2>Import Contact</h2>
+          <button class="close-dialog-btn icon-button">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="dialog-body">
+          <p class="dialog-description">Add an external DID as a contact for issuing credentials.</p>
+
+          <div class="form-group">
+            <label for="contact-name">Contact Name:</label>
+            <input type="text" id="contact-name" class="input-field" placeholder="Enter a name for this contact">
+          </div>
+
+          <div class="form-group">
+            <label for="contact-did">DID:</label>
+            <input type="text" id="contact-did" class="input-field"
+              placeholder="Enter the DID string (e.g., did:prism:...)">
+          </div>
+
+          <div class="form-group">
+            <label for="contact-type">DID Type:</label>
+            <select id="contact-type" class="input-field">
+              <option value="holder">Holder</option>
+              <option value="issuer">Issuer</option>
+              <option value="verifier">Verifier</option>
+            </select>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="secondary-button cancel-btn">Cancel</button>
+          <button class="primary-button save-btn">Save Contact</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Contact Import Dialog Template -->
+  <template id="contact-import-dialog-template">
+    <div class="dialog-overlay contact-import-dialog">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <h2>Import Contact</h2>
+          <button class="close-dialog-btn icon-button">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="dialog-body">
+          <p class="dialog-description">Add an external DID as a contact for issuing credentials.</p>
+
+          <div class="form-group">
+            <label for="contact-name">Contact Name:</label>
+            <input type="text" id="contact-name" class="input-field" placeholder="Enter a name for this contact">
+          </div>
+
+          <div class="form-group">
+            <label for="contact-did">DID:</label>
+            <input type="text" id="contact-did" class="input-field"
+              placeholder="Enter the DID string (e.g., did:prism:...)">
+          </div>
+
+          <div class="form-group">
+            <label for="contact-type">DID Type:</label>
+            <select id="contact-type" class="input-field">
+              <option value="holder">Holder</option>
+              <option value="issuer">Issuer</option>
+              <option value="verifier">Verifier</option>
+            </select>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="secondary-button cancel-btn">Cancel</button>
+          <button class="primary-button save-btn">Save Contact</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Template for the contact detail dialog -->
+  <template id="contact-detail-dialog-template">
+    <div class="dialog-overlay contact-detail-dialog">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <h2>Contact Details</h2>
+          <button class="close-dialog-btn icon-button">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="dialog-body">
+          <div class="contact-detail-header">
+            <div class="contact-detail-avatar">
+              <!-- Avatar will be set dynamically -->
+            </div>
+            <div class="contact-detail-info">
+              <h3 class="contact-detail-name"></h3>
+              <div class="contact-detail-badges">
+                <!-- Badges will be added dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <div class="contact-detail-section">
+            <div class="contact-detail-label">DID</div>
+            <div class="contact-detail-value contact-detail-did"></div>
+            <button class="contact-detail-copy-btn" title="Copy DID">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+          </div>
+
+          <div class="contact-detail-section">
+            <div class="contact-detail-label">Created</div>
+            <div class="contact-detail-value contact-detail-date"></div>
+          </div>
+
+          <div class="contact-detail-form">
+            <div class="form-group">
+              <label for="contact-detail-name-input">Name</label>
+              <input type="text" id="contact-detail-name-input" class="input-field" placeholder="Contact name">
+            </div>
+
+            <div class="form-group">
+              <label for="contact-detail-type-select">DID Type</label>
+              <select id="contact-detail-type-select" class="input-field">
+                <option value="holder">Holder</option>
+                <option value="issuer">Issuer</option>
+                <option value="verifier">Verifier</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="secondary-button delete-contact-btn">Delete</button>
+          <div class="spacer"></div>
+          <button class="secondary-button cancel-btn">Cancel</button>
+          <button class="primary-button save-btn">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Delete Confirmation Dialog Template -->
+  <template id="delete-confirmation-dialog-template">
+    <div class="dialog-overlay delete-confirmation-dialog">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <h2>Delete Contact</h2>
+          <button class="close-dialog-btn icon-button">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="dialog-body">
+          <div class="dialog-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </div>
+          <p>Are you sure you want to delete this contact?</p>
+          <p class="contact-name"></p>
+          <p>This action cannot be undone.</p>
+        </div>
+        <div class="dialog-footer">
+          <button class="secondary-button cancel-btn">Cancel</button>
+          <button class="delete-btn primary-button">Delete Contact</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
   <script src="dist/popup.js"></script>
 </body>
+
 </html>
