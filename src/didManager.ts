@@ -141,18 +141,6 @@ export class DIDManager {
         };
       }
 
-      // Get the castor service which handles DID operations
-      const castor = this.agent.getCastor();
-      if (!castor) {
-        return {
-          success: false,
-          error: 'Castor service not available in agent.'
-        };
-      }
-
-      // Parse the DID string to get a DID object
-      const didObj = castor.parseDID(didId);
-
       // Check if this is a PRISM DID
       if (!didId.startsWith('did:prism:')) {
         return {
@@ -161,20 +149,23 @@ export class DIDManager {
         };
       }
 
+      // Try to resolve the DID first to see if it's already published
       try {
-        // Try to resolve the DID first to see if it's already published
-        await castor.resolveDID(didId);
-        // If we get here, the DID is already published
-        await this.updateDIDStatus(didId, 'published');
-        return {
-          success: true
-        };
+        const status = await this.checkBlockchainStatus(didId);
+        if (status === 'published') {
+          // If we get here, the DID is already published
+          await this.updateDIDStatus(didId, 'published');
+          return {
+            success: true
+          };
+        }
       } catch (e) {
         // If resolution fails, the DID isn't published yet, which is fine
         console.log('DID not yet published, proceeding with publication');
       }
 
-      const published = await this.agent.publishDID(didObj);
+      // Use the agent to publish the DID
+      const published = await this.agent.publishDID(didId);
 
       if (published) {
         // Update the DID status in storage
@@ -240,12 +231,13 @@ export class DIDManager {
    * Start polling for blockchain confirmation
    * @param didId DID identifier
    * @param callback Function to call with status updates
+   * @param maxAttempts Maximum number of polling attempts
    * @returns Polling ID to stop polling
    */
   public pollBlockchainStatus(
     didId: string,
     callback: (status: string) => void,
-    maxAttempts: number = 10
+    maxAttempts: number = 20
   ): number {
     let attempts = 0;
 
@@ -256,15 +248,27 @@ export class DIDManager {
     const pollId = window.setInterval(async () => {
       attempts++;
 
-      const status = await this.checkBlockchainStatus(didId);
-      callback(status);
+      try {
+        const status = await this.checkBlockchainStatus(didId);
+        callback(status);
 
-      if (status === 'published' || attempts >= maxAttempts) {
-        // If published or max attempts reached, stop polling
-        clearInterval(pollId);
+        if (status === 'published' || attempts >= maxAttempts) {
+          // If published or max attempts reached, stop polling
+          clearInterval(pollId);
 
-        if (attempts >= maxAttempts && status !== 'published') {
-          // If max attempts reached and not published, mark as failed
+          if (attempts >= maxAttempts && status !== 'published') {
+            // If max attempts reached and not published, mark as failed
+            await this.updateDIDStatus(didId, 'failed');
+            callback('failed');
+          }
+        }
+      } catch (error) {
+        console.error('Error during status polling:', error);
+
+        // If there's an error checking status, don't immediately fail
+        // Just log it and continue, unless we've reached max attempts
+        if (attempts >= maxAttempts) {
+          clearInterval(pollId);
           await this.updateDIDStatus(didId, 'failed');
           callback('failed');
         }
@@ -280,19 +284,14 @@ export class DIDManager {
    * @param status New status value
    * @returns Promise with success boolean
    */
-  private async updateDIDStatus(didId: string, status: string): Promise<boolean> {
+  private async updateDIDStatus(didId: string, status: string, details?: any): Promise<boolean> {
     try {
-      const dids = await this.getAllDIDs();
-      const didIndex = dids.findIndex(did => did.id === didId);
-
-      if (didIndex === -1) {
-        return false; // DID not found
-      }
-
-      // Store the status in a separate storage key to avoid modifying the DIDInfo interface
-      const statusKey = `did_status_${didId}`;
-      await ChromeStorage.set(statusKey, status);
-
+      // Store the status
+      await ChromeStorage.storeDIDStatus(didId, status);
+      
+      // Log the event
+      await ChromeStorage.addDIDPublicationEvent(didId, `status_${status}`, details);
+      
       return true;
     } catch (error) {
       console.error(`❌ Error updating DID status:`, error);
@@ -307,8 +306,7 @@ export class DIDManager {
    */
   public async getDIDStatus(didId: string): Promise<string | undefined> {
     try {
-      const statusKey = `did_status_${didId}`;
-      return await ChromeStorage.get(statusKey);
+      return await ChromeStorage.getDIDStatus(didId);
     } catch (error) {
       console.error(`❌ Error getting DID status:`, error);
       return undefined;
@@ -362,6 +360,22 @@ export class DIDManager {
   public async getFirstDIDOfType(type: DIDType): Promise<DIDInfo | undefined> {
     const dids = await this.getDIDsByType(type);
     return dids.length > 0 ? dids[0] : undefined;
+  }
+
+  /**
+   * Store operation details for a DID publication
+   * @param didId DID identifier
+   * @param operationData Operation details from blockchain
+   * @returns Promise with success boolean
+   */
+  private async storeOperationDetails(didId: string, operationData: any): Promise<boolean> {
+    try {
+      await ChromeStorage.storeDIDOperation(didId, operationData);
+      return true;
+    } catch (error) {
+      console.error(`❌ Error storing operation details:`, error);
+      return false;
+    }
   }
 
   /**

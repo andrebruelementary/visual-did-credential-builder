@@ -114,6 +114,76 @@ export class Agent {
     };
   }
 
+  /**
+   * Diagnostic function to inspect a private key
+   * @param key The private key to inspect
+   * @param stage Description of when this inspection is happening
+   */
+  private inspectPrivateKey(key: SDK.Domain.PrivateKey | null, stage: string): void {
+    console.log(`[DEBUG] Private key inspection at stage: ${stage}`);
+    
+    if (!key) {
+      console.error(`[DEBUG] Key is null at stage: ${stage}`);
+      return;
+    }
+    
+    try {
+      // Safely check properties without throwing errors
+      const safeGetProperty = (prop: string) => {
+        try {
+          return key.getProperty(prop);
+        } catch (e) {
+          return `Error accessing: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      };
+      
+      // Get all available properties
+      const knownProps = [
+        SDK.Domain.KeyProperties.curve,
+        SDK.Domain.KeyProperties.type,
+        SDK.Domain.KeyProperties.rawKey,
+        // Add any other known property constants from the SDK
+      ];
+      
+      // Build diagnostics object
+      const keyDiagnostics = {
+        type: typeof key,
+        isInstanceOf: key.constructor ? key.constructor.name : 'unknown',
+        properties: Object.getOwnPropertyNames(key),
+        methods: Object.getOwnPropertyNames(Object.getPrototypeOf(key)),
+        known_properties: knownProps.reduce((acc, prop) => {
+          acc[prop] = safeGetProperty(prop);
+          return acc;
+        }, {} as Record<string, any>),
+        has_raw_key: !!safeGetProperty(SDK.Domain.KeyProperties.rawKey),
+        raw_key_type: safeGetProperty(SDK.Domain.KeyProperties.rawKey) ? 
+                      typeof safeGetProperty(SDK.Domain.KeyProperties.rawKey) : 'N/A',
+        can_sign: typeof (key as any).sign === 'function'
+      };
+      
+      console.log(`[DEBUG] Key details at ${stage}:`, keyDiagnostics);
+      
+      // Try to sign something as a test
+      if (typeof (key as any).sign === 'function') {
+        try {
+          const testData = new Uint8Array([1, 2, 3, 4, 5]);
+          const signature = (key as any).sign(testData);
+          console.log(`[DEBUG] Test signing at ${stage} - SUCCESS:`, {
+            signature_type: typeof signature,
+            signature_length: signature instanceof Uint8Array ? signature.length : 'N/A'
+          });
+        } catch (e) {
+          console.error(`[DEBUG] Test signing at ${stage} - FAILED:`, e);
+        }
+      }
+    } catch (e) {
+      console.error(`[DEBUG] Error inspecting key at ${stage}:`, e);
+    }
+  }
+
+  /**
+   * Create a DID directly using the specified type and alias
+   */
   public async createDIDDirect(
     type: 'holder' | 'issuer' | 'verifier',
     alias?: string
@@ -131,18 +201,36 @@ export class Agent {
       
       console.log(`Creating ${type} DID with alias: ${didAlias} (direct mode)`);
       
-      // Create a unique private key for the DID
-      // Add entropy based on alias and timestamp to ensure uniqueness
-      const timestamp = Date.now();
-      const randomBuffer = new Uint8Array(32);
-      window.crypto.getRandomValues(randomBuffer);
+      // Choose curve based on DID type - use Ed25519 for holders, Secp256k1 for issuers and verifiers
+      const curve = (type === 'issuer' || type === 'verifier') ? 
+        SDK.Domain.Curve.SECP256K1 : 
+        SDK.Domain.Curve.ED25519;
       
-      console.log(`Creating private key with unique entropy for ${didAlias}`);
+      console.log(`Creating private key with curve: ${curve} for ${didAlias}`);
       
-      const privateKey = this.apollo.createPrivateKey({
-        type: SDK.Domain.KeyTypes.EC,
-        curve: SDK.Domain.Curve.ED25519
-      });
+      let privateKey;
+      
+      if (curve === SDK.Domain.Curve.SECP256K1) {
+        // For Secp256k1, we need to provide a seed
+        // First, create a random seed
+        const { seed } = this.apollo.createRandomSeed();
+        
+        // Store the seed for later use
+        await this.storeSeedForDID(didAlias, seed);
+        
+        // Create the private key with the seed
+        privateKey = this.apollo.createPrivateKey({
+          type: SDK.Domain.KeyTypes.EC,
+          curve: SDK.Domain.Curve.SECP256K1,
+          seed: Buffer.from(seed.value).toString("hex")
+        });
+      } else {
+        // For Ed25519, we can create a key without seed
+        privateKey = this.apollo.createPrivateKey({
+          type: SDK.Domain.KeyTypes.EC,
+          curve: SDK.Domain.Curve.ED25519
+        });
+      }
       
       console.log("Created private key:", privateKey);
       
@@ -151,7 +239,7 @@ export class Agent {
         'did-communication',
         ['DIDCommMessaging'],
         {
-          uri: `https://example.com/endpoint/${timestamp}`, // Make service URI unique
+          uri: `https://example.com/endpoint/${Date.now()}`, // Make service URI unique
           accept: ['didcomm/v2'],
           routingKeys: []
         }
@@ -162,7 +250,7 @@ export class Agent {
       const did = await this.castor.createPrismDID(privateKey, [service]);
       console.log("DID created:", did.toString());
       
-      // First store the private key
+      // Store the private key
       try {
         await this.storePrivateKeyForDID(did.toString(), privateKey);
         console.log("Private key stored successfully");
@@ -172,7 +260,7 @@ export class Agent {
         throw new Error(`DID created but failed to store key: ${errorMessage}`);
       }
       
-      // Then store the DID with the correct type
+      // Store the DID with the correct type
       try {
         await this.storeDID(did.toString(), type, didAlias);
         console.log(`DID stored successfully with type: ${type}`);
@@ -189,6 +277,50 @@ export class Agent {
     }
   }
   
+  /**
+   * Store a seed for a DID
+   */
+  private async storeSeedForDID(did: string, seed: SDK.Domain.Seed): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Convert Uint8Array to regular array for storage
+      const seedArray = Array.from(seed.value);
+      chrome.storage.local.set({ [`seed_${did}`]: seedArray }, () => {
+        if (chrome.runtime.lastError) {
+          console.error("Seed storage error:", chrome.runtime.lastError);
+          reject(chrome.runtime.lastError);
+        } else {
+          console.log("Seed stored successfully for DID:", did);
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * Get a seed for a DID
+   */
+  private async getSeedForDID(did: string): Promise<SDK.Domain.Seed | null> {
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.get([`seed_${did}`], (result) => {
+        try {
+          const seedArray = result[`seed_${did}`];
+          if (!seedArray) {
+            console.warn(`No seed found for DID: ${did}`);
+            resolve(null);
+            return;
+          }
+          
+          // Convert back to Uint8Array
+          const seedValue = new Uint8Array(seedArray);
+          resolve({ value: seedValue });
+        } catch (err) {
+          console.error("Error retrieving seed:", err);
+          reject(err);
+        }
+      });
+    });
+  }
+
   /**
    * Initialize the agent without mediator connectivity
    * Focused on DID creation, publishing, and credential operations
@@ -238,81 +370,47 @@ export class Agent {
   }
 
   /**
-   * Create a new DID based on the given type
-   * @param type Type of DID to create
-   * @param alias Optional alias for the DID
+   * Create a new DID
+   * @param type The type of DID to create (holder, issuer, verifier)
+   * @param alias Optional human-readable alias for the DID
+   * @returns Promise with the result of the DID creation
    */
-  public async createDID(
-    type: 'holder' | 'issuer' | 'verifier',
-    alias?: string
-  ): Promise<string | null> {
+  async createDID(type: string, alias?: string): Promise<{ success: boolean, did?: string, error?: string }> {
+    console.log(`Creating DID of type: ${type} with alias: ${alias}`);
+
     if (!this.isInitialized()) {
-      throw new Error('Agent not initialized');
+      return {
+        success: false,
+        error: 'Agent not initialized. Please initialize first.'
+      };
     }
-    
+
     try {
+      // Get a proxy to the agent functionality
+      const agentProxy = this.getAgent();
+
+      // Generate default alias if not provided
       const didAlias = alias || `${type}-did-${Date.now()}`;
-      
-      console.log(`Creating ${type} DID with alias: ${didAlias}`);
-      
-      // Using Castor directly if the agent isn't available or fails
-      if (this.agent && typeof this.agent.createNewPrismDID === 'function') {
-        console.log("Using agent.createNewPrismDID");
-        try {
-          const did = await this.agent.createNewPrismDID(didAlias);
-          const didString = did.toString();
-          
-          console.log(`Successfully created ${type} DID using agent:`, didString);
-          
-          // Store the DID with its type
-          await this.storeDID(didString, type, didAlias);
-          
-          return didString;
-        } catch (agentError) {
-          console.error("Error creating DID with agent:", agentError);
-          console.log("Falling back to direct creation");
-        }
-      }
-      
-      // Fallback: Create DID directly with Castor
-      if (!this.castor || !this.apollo) {
-        throw new Error('Castor or Apollo not initialized');
-      }
-      
-      // Create a private key for the DID
-      const privateKey = this.apollo.createPrivateKey({
-        type: SDK.Domain.KeyTypes.EC,
-        curve: SDK.Domain.Curve.ED25519
-      });
-      
-      // Optional: Create a service for the DID
-      const service = new SDK.Domain.Service(
-        'did-communication',
-        ['DIDCommMessaging'],
-        {
-          uri: 'https://example.com/endpoint',
-          accept: ['didcomm/v2'],
-          routingKeys: []
-        }
+
+      // Use the direct method with explicit type
+      const did = await agentProxy.createDIDWithType(
+        type as 'holder' | 'issuer' | 'verifier',
+        didAlias
       );
-      
-      // Create the DID using Castor directly
-      const did = await this.castor.createPrismDID(privateKey, [service]);
-      
-      // Convert to string for storage and return
+
+      // Convert the DID to string
       const didString = did.toString();
-      console.log(`Successfully created ${type} DID directly:`, didString);
-      
-      // Store the DID with its type
-      await this.storeDID(didString, type, didAlias);
-      
-      // Store the key for later use in publishing
-      await this.storePrivateKeyForDID(didString, privateKey);
-      
-      return didString;
+
+      return {
+        success: true,
+        did: didString
+      };
     } catch (error) {
-      console.error(`Failed to create ${type} DID:`, error);
-      return null;
+      console.error('Failed to create DID:', error);
+      return {
+        success: false,
+        error: `Failed to create DID: ${error instanceof Error ? error.message : String(error)}`
+      };
     }
   }
 
@@ -326,37 +424,27 @@ export class Agent {
     return bytes;
   }
   
-  // Helper method to store a private key for a DID
+  /**
+   * Store a private key for a DID with proper serialization
+   */
   private async storePrivateKeyForDID(did: string, key: SDK.Domain.PrivateKey): Promise<void> {
     try {
-
-      console.log("Key properties:", {
-        type: typeof key,
-        properties: Object.getOwnPropertyNames(key),
-        rawKeyType: typeof key.getProperty(SDK.Domain.KeyProperties.rawKey),
-        methods: Object.getOwnPropertyNames(Object.getPrototypeOf(key))
-      });
-
-      // Get raw key data safely
-      const rawKey = key.getProperty(SDK.Domain.KeyProperties.rawKey);
-      let rawBase64: string | undefined;
-      
-      // Convert the key to a serializable format
-      const serializableKey = {
-        // Basic properties that most private keys have
-        type: key.getProperty(SDK.Domain.KeyProperties.type),
-        curve: key.getProperty(SDK.Domain.KeyProperties.curve),
-        rawBase64: rawBase64,
-        // For debugging purposes, include what we're trying to access
-        keyProps: Object.getOwnPropertyNames(key)
+      // Create a StorableKey structure with the properties needed for restoration
+      // Convert the Uint8Array to a regular array which can be serialized
+      const storableKey = {
+        uuid: (key as any).uuid,
+        recoveryId: (key as any).recoveryId,
+        raw: Array.from((key as any).raw),
+        size: (key as any).size,
+        type: (key as any).type
       };
       
-      console.log("Storing serializable key:", serializableKey);
+      console.log("Storing key with recoveryId:", storableKey.recoveryId);
       
+      // Store the serialized key
       return new Promise((resolve, reject) => {
         try {
-          // Store the serializable key with a reference to the DID
-          chrome.storage.local.set({ [`master_key_${did}`]: serializableKey }, () => {
+          chrome.storage.local.set({ [`master_key_${did}`]: storableKey }, () => {
             if (chrome.runtime.lastError) {
               console.error("Storage error:", chrome.runtime.lastError);
               reject(chrome.runtime.lastError);
@@ -365,7 +453,7 @@ export class Agent {
             }
           });
         } catch (err) {
-          console.error("Error serializing key:", err);
+          console.error("Error storing key:", err);
           reject(err);
         }
       });
@@ -375,54 +463,132 @@ export class Agent {
     }
   }
 
+  /**
+   * Retrieve a private key for a DID
+   */
+  private async getPrivateKeyForDID(did: string): Promise<SDK.Domain.PrivateKey | null> {
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.get([`master_key_${did}`], (result) => {
+        try {
+          const storedKey = result[`master_key_${did}`];
+          if (!storedKey) {
+            console.warn(`No key found for DID: ${did}`);
+            resolve(null);
+            return;
+          }
+          
+          console.log("Retrieved key with recoveryId:", storedKey.recoveryId);
+          
+          // Convert the regular array back to Uint8Array
+          const storableKey = {
+            ...storedKey,
+            raw: new Uint8Array(storedKey.raw)
+          };
+          
+          // Use the built-in restore method from Apollo
+          const privateKey = this.apollo?.restorePrivateKey(storableKey);
+          
+          if (!privateKey) {
+            console.error("Failed to restore private key");
+            resolve(null);
+            return;
+          }
+          
+          console.log("Successfully restored private key using SDK's restore method");
+          resolve(privateKey);
+        } catch (err) {
+          console.error("Error retrieving key:", err);
+          reject(err);
+        }
+      });
+    });
+  }
+
+  /**
+   * Publish a DID to the blockchain
+   */
   public async publishDID(didString: string): Promise<boolean> {
     if (!this.isInitialized()) {
       throw new Error('Agent not initialized');
     }
-    
+
     if (!this.apollo || !this.castor || !this.api) {
       throw new Error('Required services not initialized');
     }
-    
+
     try {
       console.log(`Publishing DID to blockchain: ${didString}`);
-      
-      // Parse the DID string
+
+      // Parse the DID string to get a DID object
       const did = this.castor.parseDID(didString);
-      
+      console.log("Successfully parsed DID:", {
+        didMethod: did.method,
+        didIdentifier: did.toString()
+      });
+
       // Get the private key for this DID
       const privateKey = await this.getPrivateKeyForDID(didString);
       if (!privateKey) {
         throw new Error('Private key not found for this DID');
       }
       
-      // Create the Atala object for the DID operation
-      const atalaObject = await this.castor.createPrismDIDAtalaObject(privateKey, did);
+      // Log key details to help diagnose issues
+      console.log("About to create Atala object with key:", {
+        keyType: typeof privateKey,
+        keyHasRaw: 'raw' in privateKey,
+        rawType: typeof (privateKey as any).raw,
+        rawLength: (privateKey as any).raw?.length,
+        hasDeriveMethod: typeof (privateKey as any).derive === 'function',
+        hasSignMethod: typeof (privateKey as any).sign === 'function',
+        keyProperties: Object.getOwnPropertyNames(privateKey),
+        recoveryId: (privateKey as any).recoveryId
+      });
       
-      // Manually submit to blockchain using the request method of the API
-      const endpoint = `${this.nodeUrl}/prism-node/operations`;
-      
-      // Convert atalaObject to a string or format required by the API
-      const atalaObjectBase64 = this.arrayBufferToBase64(atalaObject);
-      
-      // Create body for the request
-      const requestBody = {
-        operation: atalaObjectBase64
-      };
-      
-      // Submit to the node
-      const response = await this.api.request(
-        'POST',
-        endpoint,
-        undefined, // No URL parameters
-        new Map([['Content-Type', 'application/json']]), // Headers
-        requestBody
-      );
-      
-      console.log(`DID published successfully: ${didString}`, response);
-      return true;
+      console.log("Successfully retrieved private key for DID");
+
+      // Try to create a public key from the private key
+      try {
+        const publicKey = (privateKey as any).publicKey();
+        console.log("Successfully derived public key from private key");
+      } catch (e) {
+        console.error("Warning: Could not derive public key from private key:", e);
+      }
+
+      // Check if key is a Secp256k1PrivateKey which is required by the SDK
+      if ((privateKey as any).recoveryId !== 'secp256k1+priv') {
+        const errorMessage = `This DID was created with a ${(privateKey as any).recoveryId} key, but only Secp256k1 keys are supported for publication. Please create a new DID of type issuer or verifier which will use a Secp256k1 key.`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      try {
+        console.log("Creating Atala object for DID publication...");
+        const atalaObject = await this.castor.createPrismDIDAtalaObject(privateKey, did);
+        
+        // Manually submit to blockchain using the request method of the API
+        const endpoint = `${this.nodeUrl}/prism-node/operations`;
+        const atalaObjectBase64 = this.arrayBufferToBase64(atalaObject);
+        
+        const requestBody = {
+          operation: atalaObjectBase64
+        };
+
+        const response = await this.api.request(
+          'POST',
+          endpoint,
+          undefined, // No URL parameters
+          new Map([['Content-Type', 'application/json']]), // Headers
+          requestBody
+        );
+
+        console.log(`DID publication request submitted: ${didString}`, response);
+        return true;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`Cannot sign with this key: ${errorMessage}`);
+      }
     } catch (error) {
-      console.error(`Failed to publish DID: ${error}`);
+      console.error(`Failed to publish DID: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -438,50 +604,37 @@ export class Agent {
     // Then convert to base64
     return btoa(binary);
   }
-  
-  // Helper method to get the private key for a DID
-  private async getPrivateKeyForDID(did: string): Promise<SDK.Domain.PrivateKey | null> {
-    return new Promise((resolve, reject) => {
-      chrome.storage.local.get([`master_key_${did}`], (result) => {
-        try {
-          const serializableKey = result[`master_key_${did}`];
-          if (!serializableKey) {
-            resolve(null);
-            return;
-          }
-          
-          console.log("Retrieved serializable key:", serializableKey);
-          
-          // Prepare parameters for key creation
-          const keyParams: any = {
-            type: serializableKey.type,
-            curve: serializableKey.curve
-          };
-          
-          // Only add raw if we can provide valid data
-          if (serializableKey.rawBase64) {
-            try {
-              keyParams.raw = this.base64ToArrayBuffer(serializableKey.rawBase64);
-            } catch (e) {
-              console.warn("Failed to convert base64 to buffer:", e);
-            }
-          }
-          
-          // Recreate the private key from serializable format
-          console.log("Creating private key with params:", keyParams);
-          const privateKey = this.apollo?.createPrivateKey(keyParams);
-          if(privateKey != undefined)
-            resolve(privateKey);
-          else
-            reject(null);
-        } catch (err) {
-          console.error("Error recreating key:", err);
-          reject(err);
-        }
-      });
-    });
-  }
 
+  /**
+   * Diagnostic function for serialized key data
+   * @param serializedKey The serialized key object
+   * @param stage Description of when this inspection is happening
+   */
+  private inspectSerializedKey(serializedKey: any, stage: string): void {
+    console.log(`[DEBUG] Serialized key inspection at stage: ${stage}`);
+    
+    if (!serializedKey) {
+      console.error(`[DEBUG] Serialized key is null/undefined at stage: ${stage}`);
+      return;
+    }
+    
+    try {
+      const diagnostics = {
+        properties: Object.keys(serializedKey),
+        type: serializedKey.type,
+        curve: serializedKey.curve,
+        has_raw_base64: !!serializedKey.rawBase64,
+        raw_base64_length: serializedKey.rawBase64 ? serializedKey.rawBase64.length : 0,
+        raw_base64_prefix: serializedKey.rawBase64 ? 
+                          serializedKey.rawBase64.substring(0, 20) + '...' : 'N/A'
+      };
+      
+      console.log(`[DEBUG] Serialized key details at ${stage}:`, diagnostics);
+    } catch (e) {
+      console.error(`[DEBUG] Error inspecting serialized key at ${stage}:`, e);
+    }
+  }
+  
   /**
    * Store the agent seed in Chrome storage
    * @param seed The seed to store

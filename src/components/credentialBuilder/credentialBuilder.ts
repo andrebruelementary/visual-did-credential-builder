@@ -1,3 +1,4 @@
+// Keep all your original imports - do not modify them
 import { CredentialTemplate, TemplateProperty } from '../../models/template';
 import { Credential, CredentialProperty } from '../../models/credential';
 import { Contact } from '../../models/contact';
@@ -8,6 +9,7 @@ import { TemplateSelector } from '../templateSelector/templateSelector';
 import { Agent } from '../../agent';
 import { DIDManager, DIDType } from '../../didManager';
 import { ChromeStorage } from '../../storage/ChromeStorage';
+import { CredentialVerifier } from '../../services/credentialVerifier';
 
 export class CredentialBuilder {
   private container: HTMLElement;
@@ -21,16 +23,42 @@ export class CredentialBuilder {
   private addPropertyBtn: HTMLButtonElement = document.createElement('button');
   private issueCredentialBtn: HTMLButtonElement = document.createElement('button');
   private subjectInput: HTMLInputElement = document.createElement('input');
+  
+  // Add an instance ID for tracking
+  private instanceId: string = `cb_${Date.now()}`;
 
   constructor(containerId: string) {
+    console.log(`[CredentialBuilder:${this.instanceId}] Creating new instance with container: ${containerId}`);
     const containerElement = document.getElementById(containerId);
     if (!containerElement) {
       throw new Error(`Container element with ID "${containerId}" not found`);
     }
     this.container = containerElement;
 
+    // Store a reference to this instance before any async operations
+    console.log(`[CredentialBuilder:${this.instanceId}] Setting window.credentialBuilder`);
+    window.credentialBuilder = this;
+    
+    // Add debugging check after setting
+    setTimeout(() => {
+      console.log(`[CredentialBuilder:${this.instanceId}] Confirm window.credentialBuilder set correctly:`, 
+                  window.credentialBuilder === this, 
+                  'ID check:', window.credentialBuilder?.instanceId === this.instanceId);
+    }, 0);
+
+    // Listen for custom events on the container
+    this.container.addEventListener('contact-selected', (event: Event) => {
+      const customEvent = event as CustomEvent;
+      console.log(`[CredentialBuilder:${this.instanceId}] Received contact-selected event:`, customEvent.detail);
+      if (customEvent.detail) {
+        this.setSelectedContact(customEvent.detail);
+      }
+    });
+  
     // Load the HTML content
     this.loadHTML().then(() => {
+      console.log(`[CredentialBuilder:${this.instanceId}] HTML loaded, initializing elements`);
+      
       // Initialize elements - these assignments will override the defaults
       this.dynamicPropertiesContainer = document.getElementById('dynamic-properties') as HTMLElement;
       this.loadTemplateBtn = document.getElementById('load-template-btn') as HTMLButtonElement;
@@ -38,6 +66,20 @@ export class CredentialBuilder {
       this.addPropertyBtn = document.getElementById('add-property-btn') as HTMLButtonElement;
       this.issueCredentialBtn = document.getElementById('issue-credential-btn') as HTMLButtonElement;
       this.subjectInput = document.getElementById('credential-subject') as HTMLInputElement;
+
+      console.log(`[CredentialBuilder:${this.instanceId}] Elements initialized:`, {
+        dynamicPropertiesFound: !!this.dynamicPropertiesContainer,
+        loadButtonFound: !!this.loadTemplateBtn,
+        saveButtonFound: !!this.saveTemplateBtn,
+        addPropertyFound: !!this.addPropertyBtn,
+        issueButtonFound: !!this.issueCredentialBtn,
+        subjectInputFound: !!this.subjectInput
+      });
+      
+      if (this.issueCredentialBtn) {
+        console.log(`[CredentialBuilder:${this.instanceId}] Initial issue button state:`, 
+                    this.issueCredentialBtn.disabled);
+      }
 
       // Initialize event listeners
       this.initEventListeners();
@@ -52,46 +94,100 @@ export class CredentialBuilder {
       const response = await fetch(chrome.runtime.getURL('dist/components/credentialBuilder/credentialBuilder.html'));
       const html = await response.text();
       this.container.innerHTML = html;
+      console.log(`[CredentialBuilder:${this.instanceId}] HTML content loaded`);
     } catch (error) {
-      console.error('Error loading credential builder HTML:', error);
+      console.error(`[CredentialBuilder:${this.instanceId}] Error loading HTML:`, error);
       this.container.innerHTML = '<p>Error loading credential builder</p>';
     }
   }
 
   private initEventListeners(): void {
-    this.loadTemplateBtn.addEventListener('click', this.openTemplateSelector.bind(this));
-    this.saveTemplateBtn.addEventListener('click', this.saveTemplate.bind(this));
-    this.addPropertyBtn.addEventListener('click', this.addEmptyProperty.bind(this));
-    this.issueCredentialBtn.addEventListener('click', this.issueCredential.bind(this));
+    console.log(`[CredentialBuilder:${this.instanceId}] Initializing event listeners`);
+    
+    if (this.loadTemplateBtn) {
+      this.loadTemplateBtn.addEventListener('click', this.openTemplateSelector.bind(this));
+    }
+    
+    if (this.saveTemplateBtn) {
+      this.saveTemplateBtn.addEventListener('click', this.saveTemplate.bind(this));
+    }
+    
+    if (this.addPropertyBtn) {
+      this.addPropertyBtn.addEventListener('click', this.addEmptyProperty.bind(this));
+    }
+    
+    if (this.issueCredentialBtn) {
+      console.log(`[CredentialBuilder:${this.instanceId}] Adding click listener to issue button`);
+      this.issueCredentialBtn.addEventListener('click', () => {
+        console.log(`[CredentialBuilder:${this.instanceId}] Issue button clicked, has contact:`, 
+                    !!this.selectedContact);
+        this.issueCredential();
+      });
+    } else {
+      console.warn(`[CredentialBuilder:${this.instanceId}] Issue button not found for event listener`);
+    }
 
     // Add validation listener to subject input
-    this.subjectInput.addEventListener('input', () => {
-      this.updateIssueButtonState();
-    });
+    if (this.subjectInput) {
+      this.subjectInput.addEventListener('input', () => {
+        console.log(`[CredentialBuilder:${this.instanceId}] Subject input changed:`, 
+                    this.subjectInput.value);
+        this.updateIssueButtonState();
+      });
+    }
   }
 
   /**
- * Update issue button state based on form state and contact selection
- */
+   * Update issue button state based on form state and contact selection
+   */
   private updateIssueButtonState(): void {
+    console.log(`[CredentialBuilder:${this.instanceId}] Updating issue button state`);
+    
+    // Always get fresh button reference for reliability
+    const domIssueBtn = document.getElementById('issue-credential-btn') as HTMLButtonElement;
+    
+    // Update instance variable if DOM button found
+    if (domIssueBtn && !this.issueCredentialBtn) {
+      console.log(`[CredentialBuilder:${this.instanceId}] Updating issue button reference from DOM`);
+      this.issueCredentialBtn = domIssueBtn;
+    }
+    
     const hasSubject = this.subjectInput && this.subjectInput.value.trim().length > 0;
     const hasContact = this.selectedContact !== null;
 
-    if (this.issueCredentialBtn) {
-      // Enable/disable based on requirements
-      this.issueCredentialBtn.disabled = !(hasSubject && hasContact);
+    console.log(`[CredentialBuilder:${this.instanceId}] State factors:`, {
+      hasSubject,
+      hasContact,
+      selectedContact: this.selectedContact ? this.selectedContact.name : 'none',
+      domButtonFound: !!domIssueBtn,
+      instanceButtonFound: !!this.issueCredentialBtn,
+      buttonDisabled: this.issueCredentialBtn ? this.issueCredentialBtn.disabled : 'N/A',
+      domButtonDisabled: domIssueBtn ? domIssueBtn.disabled : 'N/A'
+    });
 
-      // Add visual indication
-      if (hasContact && !hasSubject) {
-        this.issueCredentialBtn.title = "Please enter a credential subject";
-      } else if (!hasContact && hasSubject) {
-        this.issueCredentialBtn.title = "Please select a contact";
-      } else if (!hasContact && !hasSubject) {
-        this.issueCredentialBtn.title = "Please enter a subject and select a contact";
-      } else {
-        this.issueCredentialBtn.title = "Issue credential to selected contact";
-      }
+    // Update DOM button
+    if (domIssueBtn) {
+      const shouldBeEnabled = hasSubject && hasContact;
+      console.log(`[CredentialBuilder:${this.instanceId}] Setting DOM button disabled: ${!shouldBeEnabled}`);
+      domIssueBtn.disabled = !shouldBeEnabled;
     }
+    
+    // Also update instance variable for consistency
+    if (this.issueCredentialBtn) {
+      const shouldBeEnabled = hasSubject && hasContact;
+      console.log(`[CredentialBuilder:${this.instanceId}] Setting instance button disabled: ${!shouldBeEnabled}`);
+      this.issueCredentialBtn.disabled = !shouldBeEnabled;
+    }
+
+    // Verify button state was properly set
+    setTimeout(() => {
+      const currentBtn = document.getElementById('issue-credential-btn') as HTMLButtonElement;
+      console.log(`[CredentialBuilder:${this.instanceId}] Button state after update:`, {
+        domButtonDisabled: currentBtn ? currentBtn.disabled : 'not found',
+        instanceButtonDisabled: this.issueCredentialBtn ? this.issueCredentialBtn.disabled : 'not found',
+        shouldBeEnabled: hasSubject && hasContact
+      });
+    }, 50);
   }
 
   private async openTemplateSelector(): Promise<void> {
@@ -288,9 +384,9 @@ export class CredentialBuilder {
   private showCredentialConfirmation(credential: Credential): void {
     const dialogTemplate = document.getElementById('confirmation-dialog-template') as HTMLTemplateElement;
     const dialog = dialogTemplate.content.cloneNode(true) as DocumentFragment;
-
+  
     const summaryElement = dialog.querySelector('.credential-summary') as HTMLElement;
-
+  
     // Add recipient info
     const contactInfo = document.createElement('div');
     contactInfo.className = 'credential-summary-item';
@@ -299,7 +395,7 @@ export class CredentialBuilder {
       <div class="credential-summary-value">${this.selectedContact?.name || 'Unknown'} (${credential.issuedTo})</div>
     `;
     summaryElement.appendChild(contactInfo);
-
+  
     // Add subject
     const subjectInfo = document.createElement('div');
     subjectInfo.className = 'credential-summary-item';
@@ -308,7 +404,7 @@ export class CredentialBuilder {
       <div class="credential-summary-value">${credential.subject}</div>
     `;
     summaryElement.appendChild(subjectInfo);
-
+  
     // Add all properties
     credential.properties.forEach(prop => {
       const propInfo = document.createElement('div');
@@ -319,7 +415,7 @@ export class CredentialBuilder {
       `;
       summaryElement.appendChild(propInfo);
     });
-
+  
     // Add issue date
     const dateInfo = document.createElement('div');
     dateInfo.className = 'credential-summary-item';
@@ -328,7 +424,7 @@ export class CredentialBuilder {
       <div class="credential-summary-value">${new Date(credential.issuedDate).toLocaleDateString()}</div>
     `;
     summaryElement.appendChild(dateInfo);
-
+  
     // Add expiry date if available
     if (credential.expiryDate) {
       const expiryInfo = document.createElement('div');
@@ -339,51 +435,119 @@ export class CredentialBuilder {
       `;
       summaryElement.appendChild(expiryInfo);
     }
-
+  
     // Add close button event listeners
     const closeBtn = dialog.querySelector('.close-btn') as HTMLButtonElement;
     const closeDialogBtn = dialog.querySelector('.close-dialog-btn') as HTMLButtonElement;
-
+  
     const closeDialog = () => {
       const dialogOverlay = document.querySelector('.dialog-overlay') as HTMLElement;
       if (dialogOverlay) {
         dialogOverlay.remove();
       }
     };
-
+  
+    // Add verify button
+    const verifyBtn = document.createElement('button');
+    verifyBtn.className = 'secondary-button';
+    verifyBtn.textContent = 'Verify on Blockchain';
+    verifyBtn.style.marginRight = 'auto'; // Push to left side
+  
+    verifyBtn.addEventListener('click', async () => {
+      verifyBtn.disabled = true;
+      verifyBtn.textContent = 'Verifying...';
+      
+      const result = await CredentialVerifier.verifyCredential(credential.id);
+      
+      verifyBtn.disabled = false;
+      verifyBtn.textContent = 'Verify on Blockchain';
+      
+      // Show verification result
+      const resultElement = document.createElement('div');
+      resultElement.className = result.verified ? 'status success' : 'status error';
+      resultElement.textContent = result.message;
+      resultElement.style.marginTop = '10px';
+      
+      const footerElement = dialog.querySelector('.dialog-footer');
+      if (footerElement) {
+        // Remove any previous result
+        const existingResult = footerElement.parentElement?.querySelector('.status');
+        if (existingResult) {
+          existingResult.remove();
+        }
+        
+        footerElement.parentElement?.insertBefore(resultElement, footerElement);
+      }
+    });
+  
+    // Add verify button before close button
+    const dialogFooter = dialog.querySelector('.dialog-footer') as HTMLElement;
+    if (dialogFooter) {
+      dialogFooter.insertBefore(verifyBtn, dialogFooter.firstChild);
+    }
+  
     closeBtn.addEventListener('click', closeDialog);
     closeDialogBtn.addEventListener('click', closeDialog);
-
+  
     // Save the credential to storage
     StorageService.saveCredential(credential).catch(error => {
       console.error('Error saving credential:', error);
     });
-
+  
     // Append dialog to the document
     document.body.appendChild(dialog);
   }
 
   /**
- * Sets the selected contact for credential issuance
- * @param contact Contact information
- */
+   * Sets the selected contact for credential issuance
+   * @param contact Contact information
+   */
   public setSelectedContact(contact: Contact): void {
-    console.log('Contact received in CredentialBuilder:', contact);
+    console.log(`[CredentialBuilder:${this.instanceId}] setSelectedContact called with:`, contact);
+    
+    // Store previous state for comparison
+    const previousContact = this.selectedContact;
+    
+    // Set the new contact
     this.selectedContact = contact;
-
-    // Update issue button state when contact is selected
+    
+    console.log(`[CredentialBuilder:${this.instanceId}] Contact selection changed:`, {
+      hadContactBefore: !!previousContact,
+      hasContactNow: !!this.selectedContact,
+      contactName: contact.name
+    });
+    
+    // Update issue button state immediately
     this.updateIssueButtonState();
+    
+    // Update visual indication
+    this.updateRecipientInfo(contact);
+    
+    // Re-check button state after a delay
+    setTimeout(() => {
+      console.log(`[CredentialBuilder:${this.instanceId}] Re-checking button state after delay`);
+      this.updateIssueButtonState();
+    }, 100);
+  }
 
-    // Optionally add visual indication that a contact is selected
+  /**
+   * Updates the visual recipient information display
+   */
+  private updateRecipientInfo(contact: Contact): void {
+    console.log(`[CredentialBuilder:${this.instanceId}] Updating recipient info UI`);
     const subjectLabel = document.querySelector('label[for="credential-subject"]');
+    
     if (subjectLabel) {
       // Check if recipient info already exists
       let recipientInfo = subjectLabel.parentElement?.querySelector('.recipient-info');
 
       if (!recipientInfo) {
+        console.log(`[CredentialBuilder:${this.instanceId}] Creating new recipient info element`);
         recipientInfo = document.createElement('div');
         recipientInfo.className = 'recipient-info';
         subjectLabel.parentElement?.insertBefore(recipientInfo, subjectLabel.nextSibling);
+      } else {
+        console.log(`[CredentialBuilder:${this.instanceId}] Updating existing recipient info element`);
       }
 
       recipientInfo.innerHTML = `
@@ -392,6 +556,8 @@ export class CredentialBuilder {
         <span style="color: #6b7280; font-style: italic;">(${this.truncateDID(contact.did)})</span>
       </small>
     `;
+    } else {
+      console.warn(`[CredentialBuilder:${this.instanceId}] Subject label not found, can't update recipient info`);
     }
   }
 

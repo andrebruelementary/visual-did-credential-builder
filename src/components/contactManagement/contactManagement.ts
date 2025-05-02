@@ -235,6 +235,7 @@ export class ContactManagement {
 
     // Add selection handler
     contactItem.addEventListener('click', () => {
+      console.log('click in ContactManagement event handler');
       this.selectContact(contact, contactItem);
     });
 

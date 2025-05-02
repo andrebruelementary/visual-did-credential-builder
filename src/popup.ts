@@ -9,14 +9,17 @@ import { DIDStatus } from './components/DIDStatus';
 import { getContactSystem } from './services/contactSystem';
 import { ContactManagement, getContactManagement } from './components/contactManagement/contactManagement';
 import { getContactList, ContactList } from './components/contactManagement/contactList';
+import { setupCredentialVerificationGlobal } from './services/credentialVerifier';
 
 
 // Declare global variables and functions
 declare global {
   interface Window {
+    activePollId?: number;
     credentialBuilder?: any;
     loadDIDs?: Function;
     initializeApplication?: Function;
+    verifyCredential: (credentialId?: string) => Promise<any>;
   }
 }
 
@@ -47,11 +50,93 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let selectedDID: DIDInfo | null = null;
 
+  document.addEventListener('retry-did-publish', function(event: Event) {
+    // Type cast to access the detail property
+    const customEvent = event as CustomEvent;
+    const didId = customEvent.detail?.didId;
+    
+    if (!didId) {
+      console.error('No DID ID provided for retry');
+      return;
+    }
+    
+    console.log(`Retrying publication for DID: ${didId}`);
+    
+    // Find the DID info
+    didManager.getDIDById(didId).then(didInfo => {
+      if (didInfo) {
+        // Update the selected DID to the one being retried
+        selectedDID = didInfo;
+        
+        // Get the DID status component
+        const didStatus = new DIDStatus('did-status-container');
+        
+        // Show the retrying status
+        showStatus(`Retrying DID publication...`, 'loading');
+        didStatus.updateStatus('pending', didId);
+        
+        // Attempt to publish the DID again
+        didManager.publishDID(didId).then(result => {
+          if (result.success) {
+            showStatus(`DID publication reinitiated`, 'info');
+            
+            // Start polling for blockchain confirmation
+            const pollId = didManager.pollBlockchainStatus(
+              didId, 
+              (status) => {
+                // Update status display
+                didStatus.updateStatus(status, didId);
+                
+                if (status === 'published') {
+                  showStatus(`DID published successfully to blockchain`, 'success');
+                  // Refresh the DID list to show updated status
+                  loadDIDs();
+                } else if (status === 'failed') {
+                  showStatus(`DID publishing failed or timed out`, 'error');
+                }
+              }
+            );
+            
+            // Store poll ID
+            if (window.activePollId) {
+              clearInterval(window.activePollId);
+            }
+            window.activePollId = pollId;
+          } else {
+            showStatus(`Failed to republish DID: ${result.error || 'Unknown error'}`, 'error');
+            didStatus.updateStatus('failed', didId);
+          }
+        }).catch(error => {
+          console.error('Error republishing DID:', error);
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          showStatus(`Error republishing DID: ${errorMsg}`, 'error');
+          didStatus.updateStatus('failed', didId);
+        });
+      } else {
+        showStatus(`DID not found for retry`, 'error');
+      }
+    });
+  });
+
+
   // Full screen specifics
   document.title = 'Visual DID & Credential Builder';
 
   // Initialize credential builder for the Issue tab
-  const credentialBuilder = new CredentialBuilder('credential-builder');
+  let credentialBuilder: CredentialBuilder;
+
+  if (!window.credentialBuilder) {
+    credentialBuilder = new CredentialBuilder('credential-builder');
+    window.credentialBuilder = credentialBuilder;
+  } else {
+    credentialBuilder = window.credentialBuilder;
+  }
+
+  console.log('[DEBUG] credentialBuilder initialized:', {
+    instance: credentialBuilder,
+    windowInstance: window.credentialBuilder,
+    isSameInstance: credentialBuilder === window.credentialBuilder
+  });
 
   // Initialize contacts for credential issuance
   const contactsList = document.getElementById('contacts-list') as HTMLElement;
@@ -155,33 +240,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Create DID when the Create DID button is clicked
   createDIDButton?.addEventListener('click', async () => {
     const didType = didTypeSelect.value;
-    console.log(`User selected DID type: ${didType}`);
-    showStatus(`Creating ${didType} DID...`, 'loading');
-    try {
-      const result = await didManager.createDID(didType);
-      if (result.success) {
-        showStatus(`${didType} DID created successfully`, 'success');
-        loadDIDs();
-
-        // Enable appropriate functionality based on DID type
-        if (didType === 'issuer') {
-          // Enable issuer functionality
-          tabManager.enableTab('issue');
-        } else if (didType === 'verifier') {
-          // Enable verifier functionality
-          tabManager.enableTab('verify');
-        }
-      } else {
-        showStatus(`Failed to create DID: ${result.error}`, 'error');
-      }
-    } catch (error) {
-      console.error('Error creating DID:', error);
-      showStatus(`Error creating DID: ${(error as Error).message}`, 'error');
-    }
-  });
-
-  createDIDButton?.addEventListener('click', async () => {
-    const didType = didTypeSelect.value;
     const didAlias = didAliasInput.value.trim() || `${didType}-did-${Date.now()}`;
 
     console.log(`User selected DID type: ${didType} with alias: ${didAlias}`);
@@ -210,6 +268,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       showStatus(`Error creating DID: ${(error as Error).message}`, 'error');
     }
   });
+
+  
 
   function openEditAliasDialog(didInfo: DIDInfo): void {
     // Create dialog overlay
@@ -319,25 +379,65 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Function to handle DID selection
   function selectDID(didInfo: DIDInfo, element: HTMLElement) {
+    // Clean up any active polling
+    cleanupActivePolling();
+    
     console.log(`Selecting DID:`, didInfo);
-
+  
     // Clear previous selection
     document.querySelectorAll('.did-item').forEach(item => {
       item.classList.remove('selected');
     });
-
+  
     // Mark this DID as selected
     element.classList.add('selected');
     selectedDID = didInfo;
-
-    // Enable buttons
-    publishDIDButton.disabled = false;
-    deleteDIDButton.disabled = false;
-
+  
+    // Get current DID status to update button state
+    didManager.getDIDStatus(didInfo.id).then(status => {
+      // Enable or disable publish button based on current status
+      publishDIDButton.disabled = false;
+      
+      if (status === 'publishing' || status === 'pending') {
+        publishDIDButton.disabled = true;
+        // Restart polling for this DID if it's in a transient state
+        const didStatus = new DIDStatus('did-status-container');
+        didStatus.updateStatus(status, didInfo.id);
+        
+        window.activePollId = didManager.pollBlockchainStatus(
+          didInfo.id,
+          (newStatus) => {
+            didStatus.updateStatus(newStatus, didInfo.id);
+            
+            if (newStatus !== 'pending') {
+              publishDIDButton.disabled = false;
+            }
+          }
+        );
+      } else if (status === 'published') {
+        // If already published, disable the button
+        publishDIDButton.disabled = true;
+        publishDIDButton.title = 'This DID is already published';
+        
+        // Show published status
+        const didStatus = new DIDStatus('did-status-container');
+        didStatus.updateStatus('published', didInfo.id);
+      }
+    });
+  
     // Visual feedback for selection in full-screen mode
     element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
+  
     console.log(`Selected DID set to:`, selectedDID);
+    // Update button state based on whether selectedDID is null
+    if (selectedDID) {
+      publishDIDButton.disabled = false;
+      deleteDIDButton.disabled = false;
+    } else {
+      publishDIDButton.disabled = true;
+      deleteDIDButton.disabled = true;
+    }
+
   }
 
   // Load DIDs from storage and display them
@@ -365,6 +465,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const didItem = document.createElement('div');
         didItem.className = 'did-item';
         didItem.setAttribute('data-did-id', didInfo.id);
+        if (didInfo.isContact) {
+          didItem.classList.add('is-contact');
+        }
 
         const headerRow = document.createElement('div');
         headerRow.className = 'did-header';
@@ -437,44 +540,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         spacer.className = 'spacer';
         actionsRow.appendChild(spacer);
 
-        // Add contact toggle button
-        const contactToggle = document.createElement('span');
-        contactToggle.className = didInfo.isContact ? 'contact-toggle active' : 'contact-toggle';
-        contactToggle.innerHTML = `
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-            <circle cx="8.5" cy="7" r="4"></circle>
-            ${didInfo.isContact ?
-            '<path d="M20 8L22 10L18 14" fill="none" stroke="currentColor" stroke-width="2"></path>' :
-            '<path d="M16 3.13a4 4 0 0 1 0 7.75" fill="none" stroke="currentColor" stroke-width="2"></path>'}
-          </svg>
-          <span class="contact-toggle-label">${didInfo.isContact ? 'Remove Contact' : 'Save as Contact'}</span>
-        `;
-        contactToggle.title = didInfo.isContact ? 'Remove from contacts' : 'Save as contact';
-
-        // Add click event for contact toggle (stop propagation to prevent DID selection)
-        contactToggle.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          try {
-            const isContact = !didInfo.isContact;
-            const success = await contactSystem.toggleDIDContact(didInfo, isContact);
-
-            if (success) {
-              showStatus(`${isContact ? 'Added to' : 'Removed from'} contacts`, 'success');
-              // Refresh the DID list to show updated status
-              loadDIDs();
-            } else {
-              showStatus(`Failed to ${isContact ? 'add' : 'remove'} contact`, 'error');
-            }
-          } catch (error) {
-            console.error('Error toggling contact status:', error);
-            showStatus('Error updating contact status', 'error');
-          }
-        });
-
-        actionsRow.appendChild(contactToggle);
-
-        // Create and append elements
+        // First add the core elements to the DID item
         didItem.appendChild(headerRow);
         didItem.appendChild(didElement);
         didItem.appendChild(dateElement);
@@ -486,8 +552,63 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (status) {
             const statusElement = document.createElement('div');
             statusElement.className = `did-status did-status-${status.toLowerCase()}`;
-            statusElement.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+            
+            // Add status icon based on state
+            const statusIcon = document.createElement('span');
+            statusIcon.className = 'status-icon';
+            
+            // Add appropriate icon based on status
+            if (status === 'publishing' || status === 'pending') {
+              statusIcon.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+              `;
+            } else if (status === 'published') {
+              statusIcon.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                  <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+              `;
+            } else if (status === 'failed') {
+              statusIcon.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="15" y1="9" x2="9" y2="15"></line>
+                  <line x1="9" y1="9" x2="15" y2="15"></line>
+                </svg>
+              `;
+            }
+            
+            statusElement.appendChild(statusIcon);
+            
+            // Add status text
+            const statusText = document.createElement('span');
+            statusText.className = 'status-text';
+            statusText.textContent = status.charAt(0).toUpperCase() + status.slice(1); // Capitalize first letter
+            statusElement.appendChild(statusText);
+            
             didItem.appendChild(statusElement);
+            
+            // If DID is in a transient state (publishing/pending), start polling
+            if ((status === 'publishing' || status === 'pending') && selectedDID?.id === didInfo.id) {
+              const didStatus = new DIDStatus('did-status-container');
+              didStatus.updateStatus(status, didInfo.id);
+              
+              window.activePollId = didManager.pollBlockchainStatus(
+                didInfo.id,
+                (newStatus) => {
+                  didStatus.updateStatus(newStatus, didInfo.id);
+                  
+                  // Refresh list when status changes
+                  if (newStatus !== status) {
+                    loadDIDs();
+                  }
+                }
+              );
+            }
           }
         })();
 
@@ -537,14 +658,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Update UI based on available DIDs
       updateUIBasedOnDIDs(dids);
 
-      // Reset selected DID
-      selectedDID = null;
-      publishDIDButton.disabled = true;
-      deleteDIDButton.disabled = true;
+      // Reset selected DID if it's no longer in the list
+      if (selectedDID && !dids.find(d => d.id === selectedDID?.id)) {
+        selectedDID = null;
+        publishDIDButton.disabled = true;
+        deleteDIDButton.disabled = true;
+      }
     } catch (error) {
       console.error('Error loading DIDs:', error);
       showStatus('Failed to load DIDs', 'error');
     }
+    enhanceDIDItemsWithContactToggle();
+
   }
 
   // Update UI elements based on available DIDs
@@ -627,153 +752,115 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Render contacts in the contacts list
-  function renderContacts(contacts: Contact[]) {
-    if (!contactsList) return;
+function renderContacts(contacts: Contact[]) {
+  console.log("renderContacts called with", contacts.length, "contacts");
+  if (!contactsList) {
+    console.error("contactsList element not found!");
+    return;
+  }
 
-    contactsList.innerHTML = '';
+  contactsList.innerHTML = '';
 
-    if (contacts.length === 0) {
-      // Show empty state with import option
-      const emptyState = document.createElement('div');
-      emptyState.className = 'empty-contacts';
+  if (contacts.length === 0) {
+    console.log("No contacts to render, showing empty state");
+    // ... empty state code ...
+    return;
+  }
 
-      const emptyIcon = document.createElement('div');
-      emptyIcon.className = 'empty-contacts-icon';
-      emptyIcon.innerHTML = `
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-        <circle cx="9" cy="7" r="4"></circle>
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-      </svg>
-    `;
+  console.log("Rendering contacts:", contacts.map(c => c.name));
 
-      const emptyText = document.createElement('div');
-      emptyText.className = 'empty-contacts-text';
-      emptyText.innerHTML = `
-      <p>No contacts available for issuing credentials.</p>
-      <p>You can import a contact or save a DID as a contact in the DIDs tab.</p>
-    `;
-
-      const emptyActions = document.createElement('div');
-      emptyActions.className = 'empty-contacts-actions';
-
-      const importBtn = document.createElement('button');
-      importBtn.className = 'primary-button';
-      importBtn.textContent = 'Import Contact';
-      importBtn.addEventListener('click', openContactImportDialog);
-
-      emptyActions.appendChild(importBtn);
-
-      emptyState.appendChild(emptyIcon);
-      emptyState.appendChild(emptyText);
-      emptyState.appendChild(emptyActions);
-
-      contactsList.appendChild(emptyState);
+  // Add each contact to the list
+  contacts.forEach(contact => {
+    const contactTemplate = document.getElementById('contact-item-template') as HTMLTemplateElement;
+    if (!contactTemplate) {
+      console.error("Contact item template not found!");
       return;
     }
+    
+    const contactEl = contactTemplate.content.cloneNode(true) as DocumentFragment;
 
-    // Add each contact to the list
-    contacts.forEach(contact => {
-      const contactTemplate = document.getElementById('contact-item-template') as HTMLTemplateElement;
-      const contactEl = contactTemplate.content.cloneNode(true) as DocumentFragment;
+    const contactItem = contactEl.querySelector('.contact-item') as HTMLElement;
+    contactItem.setAttribute('data-contact-id', contact.id);
 
-      const contactItem = contactEl.querySelector('.contact-item') as HTMLElement;
-      contactItem.setAttribute('data-contact-id', contact.id);
+    // Add a data attribute to indicate if this is a local or imported contact
+    contactItem.setAttribute('data-contact-source', contact.isLocal ? 'local' : 'imported');
 
-      // Add a data attribute to indicate if this is a local or imported contact
-      contactItem.setAttribute('data-contact-source', contact.isLocal ? 'local' : 'imported');
+    // ... avatar and name setup code ...
 
-      // Update avatar with first letter of contact name
-      const avatar = contactEl.querySelector('.contact-avatar') as HTMLElement;
-      if (avatar) {
-        // Update the avatar content with the first letter of the contact name or a person icon
-        if (contact.name) {
-          avatar.textContent = contact.name.charAt(0).toUpperCase();
+    // Enhanced click handler for debugging
+    contactItem.addEventListener('click', (e) => {
+      console.log(`Contact clicked: ${contact.name} (${contact.id})`);
+      
+      // Visual selection
+      const previouslySelected = document.querySelector('.contact-item.selected');
+      if (previouslySelected) {
+        console.log("Removing selection from:", previouslySelected.getAttribute('data-contact-id'));
+        previouslySelected.classList.remove('selected');
+      }
+      
+      console.log(`Adding selected class to ${contact.name}`);
+      contactItem.classList.add('selected');
+      
+      // Check window.credentialBuilder reference
+      console.log("Checking credentialBuilder reference:", {
+        windowRefExists: !!window.credentialBuilder,
+        windowRefHasSetSelectedContact: window.credentialBuilder && typeof window.credentialBuilder.setSelectedContact === 'function',
+        instanceId: window.credentialBuilder?.instanceId,
+      });
+      
+      // Use window reference first
+      if (window.credentialBuilder && typeof window.credentialBuilder.setSelectedContact === 'function') {
+        console.log(`Calling window.credentialBuilder.setSelectedContact for ${contact.name}`);
+        window.credentialBuilder.setSelectedContact(contact);
+        
+        // Verify contact was actually set
+        setTimeout(() => {
+          console.log("Verifying contact was set:", {
+            contactSet: !!window.credentialBuilder.selectedContact,
+            contactName: window.credentialBuilder.selectedContact?.name
+          });
+        }, 50);
+      } else {
+        console.error("window.credentialBuilder not found or missing setSelectedContact method!");
+        
+        // Try event dispatch as fallback
+        const credentialBuilderElement = document.getElementById('credential-builder');
+        if (credentialBuilderElement) {
+          console.log(`Falling back to custom event for ${contact.name}`);
+          const event = new CustomEvent('contact-selected', { detail: contact });
+          credentialBuilderElement.dispatchEvent(event);
         } else {
-          avatar.innerHTML = `
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-            <circle cx="12" cy="7" r="4"></circle>
-          </svg>
-        `;
-        }
-
-        // Add different background colors for different contact types
-        if (contact.didType === 'holder') {
-          avatar.style.backgroundColor = '#93c5fd'; // Light blue for holders
-          avatar.style.color = '#1e40af';
-        } else if (contact.didType === 'issuer') {
-          avatar.style.backgroundColor = '#86efac'; // Light green for issuers
-          avatar.style.color = '#166534';
-        } else if (contact.didType === 'verifier') {
-          avatar.style.backgroundColor = '#c4b5fd'; // Light purple for verifiers
-          avatar.style.color = '#5b21b6';
+          console.error("Neither window.credentialBuilder nor credential-builder element found!");
         }
       }
 
-      const nameEl = contactEl.querySelector('.contact-name') as HTMLElement;
-      nameEl.textContent = contact.name;
-
-      // Add extra info about the contact type
-      const typeInfo = document.createElement('small');
-      typeInfo.style.display = 'block';
-      typeInfo.style.color = '#666';
-      typeInfo.style.fontSize = '12px';
-      typeInfo.style.marginTop = '2px';
-
-      const sourceLabel = contact.isLocal ? 'Local' : 'Imported';
-      typeInfo.textContent = `${contact.didType || 'DID'} (${sourceLabel})`;
-      nameEl.appendChild(typeInfo);
-
-      // Add truncated DID as title attribute
-      const truncatedDid = contact.did.length > 30
-        ? `${contact.did.substring(0, 15)}...${contact.did.substring(contact.did.length - 10)}`
-        : contact.did;
-
-      const didInfo = document.createElement('small');
-      didInfo.style.display = 'block';
-      didInfo.style.color = '#999';
-      didInfo.style.fontSize = '10px';
-      didInfo.style.marginTop = '2px';
-      didInfo.textContent = truncatedDid;
-      didInfo.title = contact.did;
-      nameEl.appendChild(didInfo);
-
-      // Set up selection
-      contactItem.addEventListener('click', () => {
-        // Remove selected class from all contacts
-        document.querySelectorAll('.contact-item').forEach(item => {
-          item.classList.remove('selected');
+      // Get the issue button state right after contact selection
+      const issueBtn = document.getElementById('issue-credential-btn') as HTMLButtonElement;
+      if (issueBtn) {
+        console.log("Issue button disabled state immediately after selection:", issueBtn.disabled);
+        
+        // Check if the button is properly responding to the selection
+        const hasSubject = document.getElementById('credential-subject') &&
+                          (document.getElementById('credential-subject') as HTMLInputElement).value.trim().length > 0;
+        
+        console.log("Issue button should be disabled:", !hasSubject, {
+          hasSubject,
+          hasContact: true, // We just selected a contact
+          buttonActuallyDisabled: issueBtn.disabled
         });
+      } else {
+        console.warn("Issue button not found in DOM after contact selection!");
+      }
 
-        // Add selected class to this contact
-        contactItem.classList.add('selected');
-
-        // Convert contact to the format expected by CredentialBuilder
-        const formattedContact = {
-          id: contact.id,
-          name: contact.name,
-          did: contact.did,
-          avatarUrl: contact.avatarUrl
-        };
-
-        // Update credential builder with selected contact
-        credentialBuilder.setSelectedContact({
-          id: contact.id,
-          name: contact.name,
-          did: contact.did,
-          avatarUrl: contact.avatarUrl,
-          createdAt: new Date().toISOString()
-        });
-
-        // Scroll into view in full-screen mode
-        contactItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      });
-
-      contactsList.appendChild(contactItem);
+      // Scroll into view for better UX
+      contactItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
-  }
+
+    contactsList.appendChild(contactItem);
+  });
+  
+  console.log("Contact rendering complete");
+}
 
   function openContactImportDialog() {
     const dialogTemplate = document.getElementById('contact-import-dialog-template') as HTMLTemplateElement;
@@ -949,22 +1036,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       showStatus('Please select a DID to publish', 'error');
       return;
     }
-
+  
+    // Disable button during operation
+    publishDIDButton.disabled = true;
     showStatus(`Publishing DID to blockchain...`, 'loading');
-
+  
     try {
-      const result = await didManager.publishDID(selectedDID!.id);
-
+      const result = await didManager.publishDID(selectedDID.id);
+  
       if (result.success) {
         showStatus(`DID publishing initiated`, 'info');
-
+  
         // Initialize status component
         const didStatus = new DIDStatus('did-status-container');
-
+  
         // Start polling for blockchain confirmation
-        didManager.pollBlockchainStatus(selectedDID!.id, (status) => {
-          didStatus.updateStatus(status, selectedDID!.id);
-
+        didManager.pollBlockchainStatus(selectedDID.id, (status) => {
+          if(selectedDID != null) {
+          didStatus.updateStatus(status, selectedDID.id);
+  
           if (status === 'published') {
             showStatus(`DID published successfully to blockchain`, 'success');
             // Refresh the DID list to show updated status
@@ -972,6 +1062,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           } else if (status === 'failed') {
             showStatus(`DID publishing timed out`, 'error');
           }
+        }
         });
       } else {
         showStatus(`Failed to publish DID: ${result.error}`, 'error');
@@ -979,8 +1070,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (error) {
       console.error('Error publishing DID:', error);
       showStatus(`Error publishing DID: ${(error as Error).message}`, 'error');
+    } finally {
+      // Re-enable button after operation completes
+      publishDIDButton.disabled = false;
     }
   });
+
+  function cleanupActivePolling() {
+    if (window.activePollId) {
+      clearInterval(window.activePollId);
+      window.activePollId = undefined;
+    }
+  }
 
   deleteDIDButton?.addEventListener('click', async () => {
     if (!selectedDID) {
@@ -1012,8 +1113,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   /**
- * Initialize everything when the extension loads
- */
+   * Initialize everything when the extension loads
+   */
   async function initializeApplication() {
     console.log('Initializing Visual DID & Credential Builder application...');
 
@@ -1026,12 +1127,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize contact system first
     getContactSystem();
 
+    // Initialize credential builder for the Issue tab
+    if (!window.credentialBuilder) {
+      console.log('Creating new CredentialBuilder instance');
+      const credBuilder = new CredentialBuilder('credential-builder');
+      // window.credentialBuilder is set inside constructor
+    } else {
+      console.log('Using existing credentialBuilder instance:', window.credentialBuilder);
+    }
+
     // When navigating to the Issue tab, ensure contacts are properly loaded
     tabManager.on('tab-changed', (tabId: string) => {
       if (tabId === 'issue') {
         // Add a small delay to allow DOM to update
         setTimeout(() => {
-          // Initialize contact list in the Issue tab if not already done
+          // Clean up any active polling when changing tabs
+          cleanupActivePolling();
+          // Initialize contact list in the Issue tab
           initializeContactList();
         }, 100);
       }
@@ -1039,36 +1151,141 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Connect DID tab to contacts system
     initializeDIDContactsIntegration();
+
+    setupCredentialVerificationGlobal();
   }
 
   /**
    * Initialize contact list in the Issue tab
    */
   function initializeContactList() {
+    console.log("initializeContactList called");
     const contactSection = document.querySelector('.contact-section');
     if (!contactSection) {
       console.error('Contact section not found');
       return;
     }
 
-    // Check if contact list is already initialized
-    if (contactSection.querySelector('.contacts-list')) {
-      // It exists, just ensure it's updated
-      getContactList('.contact-section').loadContacts();
-      return;
+    console.log('Initializing contact list in Issue tab');
+
+    // Check if contact list already exists
+    const existingList = contactSection.querySelector('.contacts-list');
+    if (existingList) {
+      console.log('Contact list already exists, refreshing data with getContactList');
+      const contactList = getContactList('.contact-section');
+      
+      // Add debug for contact list object
+      console.log("Contact list instance:", {
+        type: contactList.constructor.name,
+        hasMethods: {
+          onContactSelected: typeof contactList.onContactSelected === 'function',
+          loadContacts: typeof contactList.loadContacts === 'function'
+        }
+      });
+      
+      contactList.loadContacts();
+    } else {
+      console.log('Creating new contacts list');
+      const contactList = getContactList('.contact-section');
+      
+      console.log("New contact list instance:", {
+        type: contactList.constructor.name,
+        hasMethods: {
+          onContactSelected: typeof contactList.onContactSelected === 'function',
+          loadContacts: typeof contactList.loadContacts === 'function'
+        }
+      });
+      
+      // Add a specific handler for completeness in debugging
+      contactList.onContactSelected((contact) => {
+        console.log("Contact selected via ContactList.onContactSelected:", contact.name);
+        
+        if (window.credentialBuilder) {
+          console.log("Forwarding to window.credentialBuilder.setSelectedContact from onContactSelected");
+          window.credentialBuilder.setSelectedContact(contact);
+        }
+      });
+      
+      contactList.loadContacts();
     }
+    
+    console.log("Contact list initialization complete");
 
-    // Initialize contact list
-    const contactList = getContactList('.contact-section');
+    // Wait a moment for the DOM to fully update, then attach handlers
+    setTimeout(() => {
+      attachContactClickHandlers();
+    }, 200);
+  }
 
-    // Connect to credential builder
-    contactList.onContactSelected((contact) => {
-      if (window.credentialBuilder && typeof window.credentialBuilder.setSelectedContact === 'function') {
-        window.credentialBuilder.setSelectedContact(contact);
-      } else if (credentialBuilder && typeof credentialBuilder.setSelectedContact === 'function') {
-        credentialBuilder.setSelectedContact(contact);
-      }
+  // Apply this as a standalone function that's called after the tab is activated and contacts are loaded
+  function attachContactClickHandlers() {
+    console.log("Attaching click handlers to contacts");
+    
+    const contactItems = document.querySelectorAll('.contact-item');
+    console.log(`Found ${contactItems.length} contact items in DOM`);
+    
+    contactItems.forEach(item => {
+      const existingContactId = item.getAttribute('data-contact-id');
+      console.log(`Attaching click handler to contact: ${existingContactId}`);
+      
+      // Remove existing click handlers
+      const newItem = item.cloneNode(true);
+      item.parentNode?.replaceChild(newItem, item);
+      
+      // Add new click handler
+      newItem.addEventListener('click', function(e) {
+        // Get the contact ID from the clicked element
+        const clickedContactId = (newItem as HTMLElement).getAttribute('data-contact-id');
+        console.log(`Direct click handler fired for contact: ${clickedContactId}`);
+        
+        // Remove selection from all items
+        document.querySelectorAll('.contact-item').forEach(i => {
+          i.classList.remove('selected');
+        });
+        
+        // Add selection to clicked item
+        (newItem as HTMLElement).classList.add('selected');
+        
+        // Validate we have a contact ID
+        if (!clickedContactId) {
+          console.error("Missing contact ID on clicked element");
+          return;
+        }
+        
+        // Get all contacts - either from a global cache or by querying the store
+        StorageService.getAllContacts().then(contacts => {
+          const contact = contacts.find(c => c.id === clickedContactId);
+          if (!contact) {
+            console.error(`Contact not found with ID: ${clickedContactId}`);
+            return;
+          }
+          
+          console.log(`Found contact for selection: ${contact.name}`);
+          
+          // Directly access the window.credentialBuilder
+          if (window.credentialBuilder) {
+            console.log(`Setting selected contact on window.credentialBuilder: ${contact.name}`);
+            window.credentialBuilder.setSelectedContact(contact);
+            
+            // Verify it worked
+            setTimeout(() => {
+              const issueBtn = document.getElementById('issue-credential-btn') as HTMLButtonElement;
+              if (issueBtn) {
+                console.log("Issue button disabled state:", issueBtn.disabled);
+              } else {
+                console.error("Issue button not found when checking state");
+              }
+            }, 50);
+          } else {
+            console.error("window.credentialBuilder not available");
+          }
+        }).catch(error => {
+          console.error("Error getting contacts:", error);
+        });
+      });
     });
+    
+    console.log("Contact click handlers attached");
   }
 
   /**
@@ -1126,7 +1343,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // Get DID info from data attributes
-      const didElement = item.querySelector('.did-value');
       const didInfo = {
         id: didId,
         type: (item.querySelector('.did-type')?.textContent || '').toLowerCase().replace(/[()]/g, '') as DIDType,
@@ -1135,87 +1351,107 @@ document.addEventListener('DOMContentLoaded', async () => {
         isContact: item.classList.contains('is-contact')
       };
 
-      // Create/update contact toggle
+      // Always create or update the contact toggle
       let contactToggle = actionsRow.querySelector('.contact-toggle');
-      if (!contactToggle) {
+      
+      // If toggle exists, update it
+      if (contactToggle) {
+        contactToggle.className = `contact-toggle ${didInfo.isContact ? 'active' : ''}`;
+        (contactToggle as HTMLElement).title = didInfo.isContact ? 'Remove from contacts' : 'Save as contact';
+        contactToggle.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7" r="4"></circle>
+            ${didInfo.isContact ?
+              '<path d="M20 8L22 10L18 14" fill="none" stroke="currentColor" stroke-width="2"></path>' :
+              '<path d="M16 3.13a4 4 0 0 1 0 7.75" fill="none" stroke="currentColor" stroke-width="2"></path>'}
+          </svg>
+          <span class="contact-toggle-label">${didInfo.isContact ? 'Remove Contact' : 'Save as Contact'}</span>
+        `;
+      } else {
+        // Create new toggle if it doesn't exist
         contactToggle = document.createElement('button');
         contactToggle.className = `contact-toggle ${didInfo.isContact ? 'active' : ''}`;
         (contactToggle as HTMLElement).title = didInfo.isContact ? 'Remove from contacts' : 'Save as contact';
         contactToggle.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-          <circle cx="8.5" cy="7" r="4"></circle>
-          ${didInfo.isContact ?
-            '<path d="M20 8L22 10L18 14" fill="none" stroke="currentColor" stroke-width="2"></path>' :
-            '<path d="M16 3.13a4 4 0 0 1 0 7.75" fill="none" stroke="currentColor" stroke-width="2"></path>'}
-        </svg>
-        <span class="contact-toggle-label">${didInfo.isContact ? 'Remove Contact' : 'Save as Contact'}</span>
-      `;
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7" r="4"></circle>
+            ${didInfo.isContact ?
+              '<path d="M20 8L22 10L18 14" fill="none" stroke="currentColor" stroke-width="2"></path>' :
+              '<path d="M16 3.13a4 4 0 0 1 0 7.75" fill="none" stroke="currentColor" stroke-width="2"></path>'}
+          </svg>
+          <span class="contact-toggle-label">${didInfo.isContact ? 'Remove Contact' : 'Save as Contact'}</span>
+        `;
         actionsRow.appendChild(contactToggle);
+      }
 
-        // Add click handler
-        contactToggle.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          try {
-            const isContact = !didInfo.isContact;
-            const success = await contactSystem.toggleDIDContact(didInfo, isContact);
+      // Always add click handler (removing existing ones)
+      contactToggle.replaceWith(contactToggle.cloneNode(true));
+      contactToggle = actionsRow.querySelector('.contact-toggle') as HTMLElement;
+      
+      // Add new click handler
+      contactToggle.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          const isContact = !didInfo.isContact;
+          const success = await contactSystem.toggleDIDContact(didInfo, isContact);
 
-            if (success) {
-              showStatus(`${isContact ? 'Added to' : 'Removed from'} contacts`, 'success');
-              // Update UI for this item
-              didInfo.isContact = isContact;
-              if (contactToggle) {
-                (contactToggle as HTMLElement).title = isContact ? 'Remove from contacts' : 'Save as contact';
-                contactToggle.innerHTML = `
+          if (success) {
+            showStatus(`${isContact ? 'Added to' : 'Removed from'} contacts`, 'success');
+            // Update UI for this item
+            didInfo.isContact = isContact;
+            
+            // Update toggle
+            contactToggle.className = `contact-toggle ${isContact ? 'active' : ''}`;
+            (contactToggle as HTMLElement).title = isContact ? 'Remove from contacts' : 'Save as contact';
+            contactToggle.innerHTML = `
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
                 <circle cx="8.5" cy="7" r="4"></circle>
                 ${isContact ?
-                    '<path d="M20 8L22 10L18 14" fill="none" stroke="currentColor" stroke-width="2"></path>' :
-                    '<path d="M16 3.13a4 4 0 0 1 0 7.75" fill="none" stroke="currentColor" stroke-width="2"></path>'}
+                  '<path d="M20 8L22 10L18 14" fill="none" stroke="currentColor" stroke-width="2"></path>' :
+                  '<path d="M16 3.13a4 4 0 0 1 0 7.75" fill="none" stroke="currentColor" stroke-width="2"></path>'}
               </svg>
               <span class="contact-toggle-label">${isContact ? 'Remove Contact' : 'Save as Contact'}</span>
             `;
-                contactToggle.className = `contact-toggle ${isContact ? 'active' : ''}`;
-              }
 
-              // Toggle contact badge
-              let contactBadge = item.querySelector('.contact-badge');
-              if (isContact) {
-                if (!contactBadge) {
-                  contactBadge = document.createElement('span');
-                  contactBadge.className = 'contact-badge';
-                  contactBadge.innerHTML = `
+            // Toggle contact badge
+            let contactBadge = item.querySelector('.contact-badge');
+            if (isContact) {
+              if (!contactBadge) {
+                contactBadge = document.createElement('span');
+                contactBadge.className = 'contact-badge';
+                contactBadge.innerHTML = `
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
                     <circle cx="8.5" cy="7" r="4"></circle>
                   </svg>
                   Contact
                 `;
-                  const headerRow = item.querySelector('.did-header');
-                  if (headerRow) {
-                    headerRow.appendChild(contactBadge);
-                  }
+                const headerRow = item.querySelector('.did-header');
+                if (headerRow) {
+                  headerRow.appendChild(contactBadge);
                 }
-              } else if (contactBadge) {
-                contactBadge.remove();
               }
-
-              // Mark item as contact
-              if (isContact) {
-                item.classList.add('is-contact');
-              } else {
-                item.classList.remove('is-contact');
-              }
-            } else {
-              showStatus(`Failed to ${isContact ? 'add' : 'remove'} contact`, 'error');
+            } else if (contactBadge) {
+              contactBadge.remove();
             }
-          } catch (error) {
-            console.error('Error toggling contact status:', error);
-            showStatus('Error updating contact status', 'error');
+
+            // Mark item as contact
+            if (isContact) {
+              item.classList.add('is-contact');
+            } else {
+              item.classList.remove('is-contact');
+            }
+          } else {
+            showStatus(`Failed to ${isContact ? 'add' : 'remove'} contact`, 'error');
           }
-        });
-      }
+        } catch (error) {
+          console.error('Error toggling contact status:', error);
+          showStatus('Error updating contact status', 'error');
+        }
+      });
     });
   }
 
@@ -1316,7 +1552,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Set up event listener for contact selection
       contactManagement.onContactSelected((contact) => {
         // Pass selected contact to credential builder
-        credentialBuilder.setSelectedContact(contact);
+        window.credentialBuilder.setSelectedContact(contact);
       });
     }
 
@@ -1505,5 +1741,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Add this to expose the function globally
   (window as any).initializeApplication = initializeApplication;
 
+  
+
+});
+
+
+document.addEventListener('click', (e) => {
+  console.log('Global click detected on:', e.target);
+  
+  // Check if the click is on or within a contact item
+  const contactItem = (e.target as HTMLElement).closest('.contact-item');
+  if (contactItem) {
+    console.log('Click was on/within a contact item:', contactItem);
+  }
+});
+
+// Global error handler to help troubleshoot issues
+window.addEventListener('error', (event) => {
+  console.error('Global error caught:', event.error);
+});
+
+// Global unhandled promise rejection handler
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled promise rejection:', event.reason);
 });
 
