@@ -79,6 +79,10 @@ export class DIDManager {
           
           // Store the DID with the correct type and alias
           const didAlias = alias || `${type}-did-${Date.now()}`;
+          
+          // Store the DID type explicitly for future reference
+          await ChromeStorage.set(`did_type_${didString}`, type);
+          
           await this.storeDID(didString, type as DIDType, didAlias);
           
           // After creating a DID, synchronize with cloud agent to ensure UI is updated
@@ -547,26 +551,64 @@ export class DIDManager {
    * @returns DIDType
    */
   private determineDIDType(cloudDID: any): DIDType {
-    // Try to infer type from the DID's keys or services
-    if (cloudDID.longFormDid) {
-      // Parse the long-form DID to check key purposes
-      try {
-        const didData = cloudDID.longFormDid.split(':').pop();
-        
-        // Check if it contains issue-related keys
-        if (didData?.includes('issue')) {
-          return DIDType.ISSUER;
-        }
-        // Check if it contains verify-related keys
-        if (didData?.includes('verify')) {
-          return DIDType.VERIFIER;
-        }
-      } catch (e) {
-        // If parsing fails, use default
+    console.log('determineDIDType called with:', cloudDID);
+    
+    // Check if the DID document has verification methods
+    if (cloudDID.didDocument?.verificationMethod) {
+      const verificationMethods = cloudDID.didDocument.verificationMethod;
+      console.log('DID verification methods:', verificationMethods);
+      
+      // Check for issuer capabilities
+      const hasIssuerKey = verificationMethods.some((vm: any) => {
+        console.log('Checking issuer VM:', vm);
+        const isIssuer = vm.id?.includes('issue') || 
+               vm.id?.includes('assertion') || 
+               vm.id?.includes('Assert') ||
+               (Array.isArray(vm.purpose) && vm.purpose.includes('assertionMethod'));
+        console.log('Is issuer?', isIssuer);
+        return isIssuer;
+      });
+      
+      // Check for verifier capabilities
+      const hasVerifierKey = verificationMethods.some((vm: any) => {
+        console.log('Checking verifier VM:', vm);
+        const isVerifier = vm.id?.includes('verify') || 
+               (Array.isArray(vm.purpose) && vm.purpose.includes('verify'));
+        console.log('Is verifier?', isVerifier);
+        return isVerifier;
+      });
+      
+      console.log('DID type check results:', { hasIssuerKey, hasVerifierKey });
+      
+      if (hasIssuerKey) {
+        console.log('Determined DID type: ISSUER');
+        return DIDType.ISSUER;
+      } else if (hasVerifierKey) {
+        console.log('Determined DID type: VERIFIER');
+        return DIDType.VERIFIER;
+      }
+    } else {
+      console.log('No verification methods in DID document');
+    }
+    
+    // If we can't determine, check the curve type as a fallback
+    if (cloudDID.didDocument?.verificationMethod) {
+      const hasEd25519 = cloudDID.didDocument.verificationMethod.some((vm: any) => {
+        console.log('Checking curve for VM:', vm);
+        const curve = vm.publicKeyJwk?.crv || vm.curve;
+        console.log('Curve:', curve, 'Is Ed25519?', curve === 'Ed25519');
+        return curve === 'Ed25519';
+      });
+      
+      console.log('Has Ed25519 curve?', hasEd25519);
+      
+      if (hasEd25519) {
+        console.log('Determined DID type based on Ed25519: HOLDER');
+        return DIDType.HOLDER;
       }
     }
     
-    // Default to HOLDER if we can't determine type
+    console.log('Default DID type: HOLDER');
     return DIDType.HOLDER;
   }
 

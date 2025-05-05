@@ -138,7 +138,7 @@ export class IdentusCloudService {
                 curve: "secp256k1"
               },
               {
-                id: "master0",
+                id: "auth-2",
                 purpose: "authentication",
                 curve: "secp256k1"
               }
@@ -153,12 +153,12 @@ export class IdentusCloudService {
               {
                 id: "auth-1",
                 purpose: "authentication",
-                curve: "ed25519"
+                curve: "Ed25519"
               },
               {
-                id: "master0",
+                id: "auth-2",
                 purpose: "authentication",
-                curve: "ed25519"
+                curve: "Ed25519"
               }
             ],
             services: []
@@ -179,7 +179,7 @@ export class IdentusCloudService {
                 curve: "secp256k1"
               },
               {
-                id: "master0",
+                id: "auth-2",
                 purpose: "authentication",
                 curve: "secp256k1"
               }
@@ -213,6 +213,44 @@ export class IdentusCloudService {
       };
     } catch (error) {
       console.error('Error creating DID via Cloud API:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Get the DID document for a specific DID
+   */
+  public async getDIDDocument(didString: string): Promise<{
+    success: boolean;
+    didDocument?: any;
+    error?: string;
+  }> {
+    try {
+      console.log(`Getting DID document via Cloud API - URL: ${this.baseUrl}dids/${didString}`);
+      
+      const response = await fetch(`${this.baseUrl}dids/${didString}`, {
+        headers: this.getHeaders()
+      });
+
+      console.log(`Response status: ${response.status}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('DID document response:', data);
+      
+      return {
+        success: true,
+        didDocument: data
+      };
+    } catch (error) {
+      console.error('Error getting DID document:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error)

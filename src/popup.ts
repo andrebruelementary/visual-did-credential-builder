@@ -498,6 +498,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (cloudResult.success && cloudResult.dids) {
           // Convert cloud DIDs to our DIDInfo format and get their status
           const cloudDIDsPromises = cloudResult.dids.map(async (cloudDID) => {
+            console.log('Processing cloud DID:', cloudDID.did);
+            console.log('Cloud DID document:', cloudDID.didDocument);
+            
             // Fetch status for each DID
             let status = cloudDID.status;
             try {
@@ -512,11 +515,68 @@ document.addEventListener('DOMContentLoaded', async () => {
               await ChromeStorage.storeDIDStatus(cloudDID.did, status);
             }
             
+            // First, try to get the stored DID type
+            let didType = await ChromeStorage.get(`did_type_${cloudDID.did}`);
+            
+            if (!didType) {
+              console.log(`Analyzing DID document for ${cloudDID.did}`);
+              
+              // Try to get the DID document to determine the type
+              try {
+                const didDocResult = await cloudService.getDIDDocument(cloudDID.did);
+                
+                if (didDocResult.success && didDocResult.didDocument?.verificationMethod) {
+                  const verificationMethods = didDocResult.didDocument.verificationMethod;
+                  console.log('Verification methods:', verificationMethods);
+                  
+                  // Check for issuer capabilities
+                  const hasIssuerKey = verificationMethods.some((vm: any) => {
+                    console.log('Checking VM for issuer:', vm);
+                    const isIssuer = vm.id?.includes('issue') || 
+                           vm.id?.includes('assertion') ||
+                           vm.id?.includes('Assert') ||
+                           (Array.isArray(vm.purpose) && vm.purpose.includes('assertionMethod'));
+                    console.log('Is issuer key?', isIssuer, 'VM:', vm);
+                    return isIssuer;
+                  });
+                  
+                  // Check for verifier capabilities
+                  const hasVerifierKey = verificationMethods.some((vm: any) => {
+                    console.log('Checking VM for verifier:', vm);
+                    const isVerifier = vm.id?.includes('verify') || 
+                             (Array.isArray(vm.purpose) && vm.purpose.includes('verify'));
+                    console.log('Is verifier key?', isVerifier, 'VM:', vm);
+                    return isVerifier;
+                  });
+                  
+                  console.log(`DID type determination for ${cloudDID.did}:`, {
+                    hasIssuerKey,
+                    hasVerifierKey
+                  });
+                  
+                  if (hasIssuerKey) {
+                    didType = DIDType.ISSUER;
+                  } else if (hasVerifierKey) {
+                    didType = DIDType.VERIFIER;
+                  } else {
+                    didType = DIDType.HOLDER;
+                  }
+                } else {
+                  didType = DIDType.HOLDER; // Default if document not available
+                }
+              } catch (error) {
+                console.error(`Error getting DID document for ${cloudDID.did}:`, error);
+                didType = DIDType.HOLDER; // Default on error
+              }
+            }
+            
+            console.log(`Final DID type for ${cloudDID.did}: ${didType}`);
+            
             // Create DIDInfo object
             const didInfo: DIDInfo = {
               id: cloudDID.did,
               alias: `cloud-${status.toLowerCase()}-${cloudDID.did.split(':').pop()?.substring(0, 8) || 'unknown'}`,
-              type: DIDType.ISSUER, // Default to issuer type
+              type: didType,
               createdAt: new Date().toISOString(),
               isContact: false
             };
