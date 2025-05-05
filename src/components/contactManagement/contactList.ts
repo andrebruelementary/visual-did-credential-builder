@@ -1,6 +1,9 @@
+// src/components/contactManagement/contactList.ts
 import { Contact } from '../../models/contact';
 import { getContactSystem } from '../../services/contactSystem';
 import { DIDType } from '../../didManager';
+import { ChromeStorage } from '../../storage/ChromeStorage';
+import { DIDRegistrarResponse } from '@/services/identusCloudService';
 
 /**
  * A component for managing and displaying contacts in the Issue tab
@@ -140,19 +143,74 @@ export class ContactList {
    */
   public async loadContacts(): Promise<void> {
     try {
-      // Get contacts that can receive credentials
-      const contacts = await this.contactSystem.getCredentialRecipients();
-      this.contacts = contacts;
+      console.log('[ContactList] Loading contacts...');
+      
+      // Get regular contacts first
+      const regularContacts = await this.contactSystem.getCredentialRecipients();
+      console.log('[ContactList] Regular contacts loaded:', regularContacts.length);
+      
+      // Get cloud DIDs that might be usable as contacts
+      const cloudService = (window as any).agent?.getCloudService();
+      let cloudContacts: Contact[] = [];
+      
+      if (cloudService) {
+        try {
+          const cloudResult = await cloudService.getAllDIDs();
+          if (cloudResult.success && cloudResult.dids) {
+            console.log('[ContactList] Cloud DIDs fetched:', cloudResult.dids);
+            
+            // Filter and convert cloud DIDs that can be used as contacts
+            // Only include PUBLISHED DIDs as they can be used in credentials
+            cloudContacts = cloudResult.dids
+              .filter((cloudDID : DIDRegistrarResponse) => cloudDID.status === 'PUBLISHED')
+              .map((cloudDID : DIDRegistrarResponse) => ({
+                id: cloudDID.did,
+                name: `Cloud: ${cloudDID.did.split(':').pop()?.substring(0, 8) || 'unknown'}`,
+                did: cloudDID.did,
+                didType: DIDType.HOLDER, // Default to holder for compatibility
+                isLocal: true, // Mark as local to distinguish from imported
+                createdAt: new Date().toISOString()
+              }));
+            
+            console.log('[ContactList] Cloud DIDs converted to contacts:', cloudContacts.length);
+          }
+        } catch (error) {
+          console.error('[ContactList] Error fetching cloud DIDs:', error);
+        }
+      }
+      
+      // Merge and deduplicate contacts
+      // Create a map to avoid duplicates
+      const contactMap = new Map<string, Contact>();
+      
+      // Add regular contacts first
+      regularContacts.forEach(contact => {
+        contactMap.set(contact.did, contact);
+      });
+      
+      // Add cloud contacts, but don't override existing ones
+      cloudContacts.forEach(contact => {
+        if (!contactMap.has(contact.did)) {
+          contactMap.set(contact.did, contact);
+        }
+      });
+      
+      // Convert map back to array
+      const allContacts = Array.from(contactMap.values());
+      
+      console.log('[ContactList] Total contacts after merging:', allContacts.length);
+      
+      this.contacts = allContacts;
 
       // Apply current filter if search input has a value
       if (this.searchInput.value.trim()) {
         this.filterContacts(this.searchInput.value);
       } else {
         // Otherwise render all contacts
-        this.renderContacts(contacts);
+        this.renderContacts(allContacts);
       }
     } catch (error) {
-      console.error('Error loading contacts:', error);
+      console.error('[ContactList] Error loading contacts:', error);
       this.showError('Failed to load contacts');
     }
   }
@@ -222,10 +280,18 @@ export class ContactList {
     name.className = 'contact-name';
     name.textContent = contact.name;
 
-    // Add type
+    // Add type with special handling for cloud contacts
     const type = document.createElement('div');
     type.className = 'contact-type';
-    type.textContent = `${contact.didType || 'DID'} (${contact.isLocal ? 'Local' : 'Imported'})`;
+    
+    let sourceLabel = contact.isLocal ? 'Local' : 'Imported';
+    
+    // Check if this is actually a cloud DID by checking the name pattern
+    if (contact.name?.startsWith('Cloud:')) {
+      sourceLabel = 'Cloud Agent';
+    }
+    
+    type.textContent = `${contact.didType || 'DID'} (${sourceLabel})`;
 
     // Add truncated DID
     const didElement = document.createElement('div');
@@ -245,21 +311,24 @@ export class ContactList {
     const actions = document.createElement('div');
     actions.className = 'contact-actions';
 
-    // Add view/edit button
-    const viewButton = document.createElement('button');
-    viewButton.className = 'contact-action-btn edit';
-    viewButton.title = 'View details';
-    viewButton.innerHTML = `
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-        <circle cx="12" cy="12" r="3"></circle>
-      </svg>
-    `;
-    viewButton.addEventListener('click', (e) => {
-      e.stopPropagation(); // Prevent selection of contact
-      this.contactSystem.openContactDetail(contact);
-    });
-    actions.appendChild(viewButton);
+    // Don't add edit button for cloud DIDs as they can't be edited
+    if (!contact.name?.startsWith('Cloud:')) {
+      // Add view/edit button
+      const viewButton = document.createElement('button');
+      viewButton.className = 'contact-action-btn edit';
+      viewButton.title = 'View details';
+      viewButton.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+      `;
+      viewButton.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent selection of contact
+        this.contactSystem.openContactDetail(contact);
+      });
+      actions.appendChild(viewButton);
+    }
 
     // Add elements to item
     item.appendChild(avatar);
@@ -363,6 +432,8 @@ export class ContactList {
    * Select a contact
    */
   private selectContact(contact: Contact, element: HTMLElement): void {
+    console.log(`[ContactList] Contact selected: ${contact.name}`);
+    
     // Clear previous selection
     this.listElement.querySelectorAll('.contact-item').forEach(item => {
       item.classList.remove('selected');

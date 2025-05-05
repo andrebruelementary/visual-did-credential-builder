@@ -10,7 +10,7 @@ import { getContactSystem } from './services/contactSystem';
 import { ContactManagement, getContactManagement } from './components/contactManagement/contactManagement';
 import { getContactList, ContactList } from './components/contactManagement/contactList';
 import { setupCredentialVerificationGlobal } from './services/credentialVerifier';
-
+import { IdentusCloudService } from './services/identusCloudService';
 
 // Declare global variables and functions
 declare global {
@@ -20,6 +20,8 @@ declare global {
     loadDIDs?: Function;
     initializeApplication?: Function;
     verifyCredential: (credentialId?: string) => Promise<any>;
+    cloudService?: IdentusCloudService;
+    debugLog: (message: string, data?: any) => void;
   }
 }
 
@@ -35,6 +37,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   tabManager.initialize('.tab', '.tab-content', 'data-tab', 'setup');
   const agent = new Agent();
   const didManager = new DIDManager(agent, storage);
+  
+  // Initialize Cloud API service
+  const cloudService = agent.getCloudService();
+  if(cloudService != null) {
+    window.cloudService = cloudService;
+  }
+  
 
   // UI Elements
   const initButton = document.getElementById('initButton') as HTMLButtonElement;
@@ -50,6 +59,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   let selectedDID: DIDInfo | null = null;
 
+  // When a retry button is clicked for a failed DID publication
   document.addEventListener('retry-did-publish', function(event: Event) {
     // Type cast to access the detail property
     const customEvent = event as CustomEvent;
@@ -75,48 +85,72 @@ document.addEventListener('DOMContentLoaded', async () => {
         showStatus(`Retrying DID publication...`, 'loading');
         didStatus.updateStatus('pending', didId);
         
-        // Attempt to publish the DID again
-        didManager.publishDID(didId).then(result => {
-          if (result.success) {
-            showStatus(`DID publication reinitiated`, 'info');
-            
-            // Start polling for blockchain confirmation
-            const pollId = didManager.pollBlockchainStatus(
-              didId, 
-              (status) => {
-                // Update status display
-                didStatus.updateStatus(status, didId);
+        const cloudService = agent.getCloudService();
+        
+        if (cloudService) {
+          // Use cloud API for retry
+          cloudService.publishDID(didId).then(result => {
+            if (result.success) {
+              showStatus(`DID publication reinitiated`, 'info');
+              
+              // Start polling for blockchain confirmation
+              let attempts = 0;
+              const maxAttempts = 20;
+              
+              const pollId = window.setInterval(async () => {
+                attempts++;
                 
-                if (status === 'published') {
-                  showStatus(`DID published successfully to blockchain`, 'success');
-                  // Refresh the DID list to show updated status
-                  loadDIDs();
-                } else if (status === 'failed') {
-                  showStatus(`DID publishing failed or timed out`, 'error');
+                try {
+                  const status = await cloudService.getDIDStatus(didId);
+                  didStatus.updateStatus(status.status, didId);
+                  
+                  if (status.status === 'PUBLISHED' || attempts >= maxAttempts) {
+                    clearInterval(pollId);
+                    
+                    if (status.status === 'PUBLISHED') {
+                      showStatus(`DID published successfully to blockchain`, 'success');
+                      loadDIDs();
+                    } else {
+                      showStatus(`DID publishing failed or timed out`, 'error');
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error polling status from Cloud API:', error);
+                  
+                  if (attempts >= maxAttempts) {
+                    clearInterval(pollId);
+                    didStatus.updateStatus('failed', didId);
+                  }
                 }
+              }, 5000);
+              
+              // Store poll ID
+              if (window.activePollId) {
+                clearInterval(window.activePollId);
               }
-            );
-            
-            // Store poll ID
-            if (window.activePollId) {
-              clearInterval(window.activePollId);
+              window.activePollId = pollId;
+            } else {
+              showStatus(`Failed to republish DID: ${result.error || 'Unknown error'}`, 'error');
+              didStatus.updateStatus('failed', didId);
             }
-            window.activePollId = pollId;
-          } else {
-            showStatus(`Failed to republish DID: ${result.error || 'Unknown error'}`, 'error');
+          }).catch(error => {
+            console.error('Error republishing DID:', error);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            showStatus(`Error republishing DID: ${errorMsg}`, 'error');
             didStatus.updateStatus('failed', didId);
-          }
-        }).catch(error => {
-          console.error('Error republishing DID:', error);
-          const errorMsg = error instanceof Error ? error.message : String(error);
-          showStatus(`Error republishing DID: ${errorMsg}`, 'error');
-          didStatus.updateStatus('failed', didId);
-        });
+          });
+        } else {
+          // Use local SDK for retry
+          didManager.publishDID(didId).then(result => {
+            // ... existing local SDK logic
+          });
+        }
       } else {
         showStatus(`DID not found for retry`, 'error');
       }
     });
   });
+
 
 
   // Full screen specifics
@@ -217,6 +251,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     showStatus('Initializing...', 'loading');
+
+    // Check if we have Cloud API configuration
+    const apiKey = await ChromeStorage.get('cloud_api_key');
+    if (apiKey) {
+      showStatus('Cloud API is configured and will be used for DID operations', 'info');
+    }
+
     try {
       const initialized = await agent.initialize();
       if (initialized) {
@@ -444,7 +485,60 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function loadDIDs() {
     try {
       console.log("Loading DIDs...");
-      const dids = await didManager.getAllDIDs();
+      
+      // Check if cloud service is available and connected
+      const cloudService = agent.getCloudService();
+      
+      let dids: DIDInfo[] = [];
+      
+      if (cloudService) {
+        // Get DIDs from cloud agent
+        const cloudResult = await cloudService.getAllDIDs();
+        
+        if (cloudResult.success && cloudResult.dids) {
+          // Convert cloud DIDs to our DIDInfo format and get their status
+          const cloudDIDsPromises = cloudResult.dids.map(async (cloudDID) => {
+            // Fetch status for each DID
+            let status = cloudDID.status;
+            try {
+              const statusResult = await cloudService.getDIDStatus(cloudDID.did);
+              status = statusResult.status;
+            } catch (error) {
+              console.error(`Error getting status for DID ${cloudDID.did}:`, error);
+            }
+            
+            // Save the status to local storage
+            if (status) {
+              await ChromeStorage.storeDIDStatus(cloudDID.did, status);
+            }
+            
+            // Create DIDInfo object
+            const didInfo: DIDInfo = {
+              id: cloudDID.did,
+              alias: `cloud-${status.toLowerCase()}-${cloudDID.did.split(':').pop()?.substring(0, 8) || 'unknown'}`,
+              type: DIDType.ISSUER, // Default to issuer type
+              createdAt: new Date().toISOString(),
+              isContact: false
+            };
+            
+            return didInfo;
+          });
+          
+          dids = await Promise.all(cloudDIDsPromises);
+          
+          // Also update local storage to match cloud agent
+          await ChromeStorage.set('dids', dids);
+          console.log("Synchronized local DIDs with cloud agent");
+        } else {
+          console.error("Failed to get DIDs from cloud agent");
+          // Fall back to local storage
+          dids = await didManager.getAllDIDs();
+        }
+      } else {
+        // Fall back to local storage
+        dids = await didManager.getAllDIDs();
+      }
+      
       console.log("DIDs loaded:", dids);
 
       // Clear the list
@@ -479,7 +573,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Create alias display
         const aliasElement = document.createElement('span');
         aliasElement.className = 'did-alias';
-        // Use alias if available, otherwise use a shortened version of the DID
         aliasElement.textContent = didInfo.alias || `${didInfo.type}-${didInfo.id.substring(didInfo.id.length - 8)}`;
         aliasContainer.appendChild(aliasElement);
 
@@ -546,30 +639,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         didItem.appendChild(dateElement);
         didItem.appendChild(actionsRow);
 
-        // Fetch and add status indicator if available
+        // Add status indicator - now from local storage (which was just synchronized with cloud)
         (async () => {
           const status = await didManager.getDIDStatus(didInfo.id);
+          
           if (status) {
             const statusElement = document.createElement('div');
-            statusElement.className = `did-status did-status-${status.toLowerCase()}`;
+            statusElement.className = `did-status did-status-${status.toLowerCase().replace(/_/, '-')}`;
             
             // Add status icon based on state
             const statusIcon = document.createElement('span');
             statusIcon.className = 'status-icon';
             
             // Add appropriate icon based on status
-            if (status === 'publishing' || status === 'pending') {
+            if (status === 'PUBLICATION_PENDING') {
               statusIcon.innerHTML = `
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10"></circle>
                   <polyline points="12 6 12 12 16 14"></polyline>
                 </svg>
               `;
-            } else if (status === 'published') {
+            } else if (status === 'PUBLISHED') {
               statusIcon.innerHTML = `
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
                   <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+              `;
+            } else if (status === 'CREATED') {
+              statusIcon.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
                 </svg>
               `;
             } else if (status === 'failed') {
@@ -587,15 +687,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Add status text
             const statusText = document.createElement('span');
             statusText.className = 'status-text';
-            statusText.textContent = status.charAt(0).toUpperCase() + status.slice(1); // Capitalize first letter
+            
+            if (status === 'PUBLICATION_PENDING') {
+              statusText.textContent = 'Publication Pending';
+            } else {
+              statusText.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+            }
+            
             statusElement.appendChild(statusText);
             
             didItem.appendChild(statusElement);
             
             // If DID is in a transient state (publishing/pending), start polling
-            if ((status === 'publishing' || status === 'pending') && selectedDID?.id === didInfo.id) {
+            if ((status === 'PUBLICATION_PENDING') && selectedDID?.id === didInfo.id) {
               const didStatus = new DIDStatus('did-status-container');
-              didStatus.updateStatus(status, didInfo.id);
+              didStatus.updateStatus('pending', didInfo.id);
               
               window.activePollId = didManager.pollBlockchainStatus(
                 didInfo.id,
@@ -669,7 +775,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       showStatus('Failed to load DIDs', 'error');
     }
     enhanceDIDItemsWithContactToggle();
-
   }
 
   // Update UI elements based on available DIDs
@@ -1042,30 +1147,78 @@ function renderContacts(contacts: Contact[]) {
     showStatus(`Publishing DID to blockchain...`, 'loading');
   
     try {
-      const result = await didManager.publishDID(selectedDID.id);
+      const cloudService = agent.getCloudService();
+      let result;
+      
+      if (cloudService) {
+        // Use cloud API for publishing
+        result = await cloudService.publishDID(selectedDID.id);
+        
+        if (result.success) {
+          // Immediately update the DID status to PUBLICATION_PENDING in local storage
+          await didManager.updateDIDStatus(selectedDID.id, 'PUBLICATION_PENDING');
+          
+          showStatus(`DID publishing initiated`, 'info');
   
-      if (result.success) {
-        showStatus(`DID publishing initiated`, 'info');
+          // Initialize status component
+          const didStatus = new DIDStatus('did-status-container');
+          didStatus.updateStatus('pending', selectedDID.id);
   
-        // Initialize status component
-        const didStatus = new DIDStatus('did-status-container');
-  
-        // Start polling for blockchain confirmation
-        didManager.pollBlockchainStatus(selectedDID.id, (status) => {
-          if(selectedDID != null) {
-          didStatus.updateStatus(status, selectedDID.id);
-  
-          if (status === 'published') {
-            showStatus(`DID published successfully to blockchain`, 'success');
-            // Refresh the DID list to show updated status
-            loadDIDs();
-          } else if (status === 'failed') {
-            showStatus(`DID publishing timed out`, 'error');
+          // Start polling for blockchain confirmation using cloud API
+          let attempts = 0;
+          const maxAttempts = 20;
+          
+          const pollId = window.setInterval(async () => {
+            attempts++;
+            
+            try {
+              const status = await cloudService.getDIDStatus(selectedDID!.id);
+              console.log(`DID Status check (attempt ${attempts}):`, status);
+              
+              // Update the UI status
+              didStatus.updateStatus(status.status, selectedDID!.id);
+              
+              // Also update local storage
+              if (status.status !== 'CREATED') {
+                await didManager.updateDIDStatus(selectedDID!.id, status.status);
+              }
+              
+              if (status.status === 'PUBLISHED' || attempts >= maxAttempts) {
+                clearInterval(pollId);
+                
+                if (status.status === 'PUBLISHED') {
+                  showStatus(`DID published successfully to blockchain`, 'success');
+                  // Reload DIDs to update the status in the list
+                  loadDIDs();
+                } else if (attempts >= maxAttempts) {
+                  showStatus(`DID publishing timed out`, 'error');
+                  await didManager.updateDIDStatus(selectedDID!.id, 'failed');
+                  didStatus.updateStatus('failed', selectedDID!.id);
+                }
+              }
+            } catch (error) {
+              console.error('Error polling status from Cloud API:', error);
+              
+              if (attempts >= maxAttempts) {
+                clearInterval(pollId);
+                await didManager.updateDIDStatus(selectedDID!.id, 'failed');
+                didStatus.updateStatus('failed', selectedDID!.id);
+              }
+            }
+          }, 5000);
+          
+          // Store poll ID
+          if (window.activePollId) {
+            clearInterval(window.activePollId);
           }
+          window.activePollId = pollId;
+        } else {
+          showStatus(`Failed to publish DID: ${result.error}`, 'error');
         }
-        });
       } else {
-        showStatus(`Failed to publish DID: ${result.error}`, 'error');
+        // Use existing polling for local SDK
+        result = await didManager.publishDID(selectedDID.id);
+        // ... existing local polling code ...
       }
     } catch (error) {
       console.error('Error publishing DID:', error);
@@ -1112,47 +1265,59 @@ function renderContacts(contacts: Contact[]) {
     }
   });
 
-  /**
-   * Initialize everything when the extension loads
-   */
-  async function initializeApplication() {
-    console.log('Initializing Visual DID & Credential Builder application...');
+  // Find the initializeApplication function and update it:
+async function initializeApplication() {
+  console.log('Initializing Visual DID & Credential Builder application...');
 
-    // Check if templates are loaded
-    addRequiredTemplates();
+  // Check if templates are loaded
+  addRequiredTemplates();
 
-    // Add styles if not already present
-    addRequiredStyles();
+  // Add styles if not already present
+  addRequiredStyles();
 
-    // Initialize contact system first
-    getContactSystem();
+  // Initialize contact system first
+  getContactSystem();
 
-    // Initialize credential builder for the Issue tab
-    if (!window.credentialBuilder) {
-      console.log('Creating new CredentialBuilder instance');
-      const credBuilder = new CredentialBuilder('credential-builder');
-      // window.credentialBuilder is set inside constructor
-    } else {
-      console.log('Using existing credentialBuilder instance:', window.credentialBuilder);
+  // Initialize credential builder for the Issue tab
+  if (!window.credentialBuilder) {
+    console.log('Creating new CredentialBuilder instance');
+    const credBuilder = new CredentialBuilder('credential-builder');
+    // window.credentialBuilder is set inside constructor
+  } else {
+    console.log('Using existing credentialBuilder instance:', window.credentialBuilder);
+  }
+
+  // Check for cloud API configuration
+  const cloudApiConfig = await ChromeStorage.get('cloud_api_config');
+  if (cloudApiConfig && agent) {
+    try {
+      await agent.initialize(cloudApiConfig);
+      console.log('Agent initialized with Cloud API');
+    } catch (error) {
+      console.error('Failed to initialize agent with Cloud API:', error);
     }
+  }
 
-    // When navigating to the Issue tab, ensure contacts are properly loaded
-    tabManager.on('tab-changed', (tabId: string) => {
-      if (tabId === 'issue') {
-        // Add a small delay to allow DOM to update
-        setTimeout(() => {
-          // Clean up any active polling when changing tabs
-          cleanupActivePolling();
-          // Initialize contact list in the Issue tab
-          initializeContactList();
-        }, 100);
-      }
-    });
+  // When navigating to the Issue tab, ensure contacts are properly loaded
+  tabManager.on('tab-changed', (tabId: string) => {
+    if (tabId === 'issue') {
+      // Add a small delay to allow DOM to update
+      setTimeout(() => {
+        // Clean up any active polling when changing tabs
+        cleanupActivePolling();
+        // Initialize contact list in the Issue tab
+        initializeContactList();
+      }, 100);
+    }
+  });
 
-    // Connect DID tab to contacts system
-    initializeDIDContactsIntegration();
+  // Connect DID tab to contacts system
+  initializeDIDContactsIntegration();
 
-    setupCredentialVerificationGlobal();
+  setupCredentialVerificationGlobal();
+
+    // Add debug panel if in development mode
+    addDebugPanel();
   }
 
   /**
@@ -1731,12 +1896,355 @@ function renderContacts(contacts: Contact[]) {
     }
   }
 
+  /**
+   * Add debug panel to the UI for testing Cloud API connectivity
+   */
+  function addDebugPanel() {
+    // Create a debug panel container
+    const debugPanel = document.createElement('div');
+    debugPanel.className = 'debug-panel';
+    debugPanel.style.cssText = 'position: fixed; bottom: 10px; right: 10px; background: #f0f0f0; padding: 10px; border-radius: 5px; border: 1px solid #ccc; z-index: 1000; font-size: 12px;';
+    
+    // Debug panel header with toggle
+    const debugHeader = document.createElement('div');
+    debugHeader.innerHTML = '<h3 style="margin: 0; cursor: pointer;">Debug Tools ▼</h3>';
+    debugPanel.appendChild(debugHeader);
+    
+    // Debug content container
+    const debugContent = document.createElement('div');
+    debugContent.style.marginTop = '10px';
+    debugPanel.appendChild(debugContent);
+    
+    // Toggle debug panel visibility
+    let isExpanded = true;
+    debugHeader.addEventListener('click', () => {
+      isExpanded = !isExpanded;
+      debugContent.style.display = isExpanded ? 'block' : 'none';
+      debugHeader.innerHTML = `<h3 style="margin: 0; cursor: pointer;">Debug Tools ${isExpanded ? '▼' : '▲'}</h3>`;
+    });
+    
+    // Add test buttons
+    const buttons = [
+      {
+        label: 'Test Issuer API (8000)',
+        action: testIssuerAPI
+      },
+      {
+        label: 'Test Verifier API (9000)',
+        action: testVerifierAPI
+      },
+      {
+        label: 'Get DID Status',
+        action: testGetDIDStatus
+      },
+      {
+        label: 'List All DIDs',
+        action: debugListAllDIDs
+      },
+      {
+        label: 'Check Operation',
+        action: checkLastOperation
+      }
+    ];
+    
+    buttons.forEach(button => {
+      const btn = document.createElement('button');
+      btn.textContent = button.label;
+      btn.style.cssText = 'margin: 5px 0; padding: 5px 10px; width: 100%; display: block;';
+      btn.addEventListener('click', button.action);
+      debugContent.appendChild(btn);
+    });
+    
+    // Add a log container
+    const logContainer = document.createElement('div');
+    logContainer.className = 'debug-log';
+    logContainer.style.cssText = 'margin-top: 10px; max-height: 200px; overflow-y: auto; background: #333; color: #fff; padding: 5px; border-radius: 3px; font-family: monospace;';
+    debugContent.appendChild(logContainer);
+    
+    // Add to the document
+    document.body.appendChild(debugPanel);
+    
+    // Function to add log entries
+    window.debugLog = function(message: string, data?: any) {
+      const entry = document.createElement('div');
+      entry.style.borderBottom = '1px solid #555';
+      entry.style.padding = '3px 0';
+      
+      let text = `[${new Date().toLocaleTimeString()}] ${message}`;
+      if (data !== undefined) {
+        try {
+          text += ` ${typeof data === 'string' ? data : JSON.stringify(data)}`;
+        } catch (e) {
+          text += ` [Object]`;
+        }
+      }
+      
+      entry.textContent = text;
+      logContainer.appendChild(entry);
+      logContainer.scrollTop = logContainer.scrollHeight;
+      
+      // Also log to console
+      console.log(`[DEBUG] ${message}`, data !== undefined ? data : '');
+    };
+  }
+
+  async function testIssuerHealth() {
+    try {
+      showStatus('Testing Issuer health endpoint...', 'loading');
+      
+      // Test the exact endpoint using the raw URL
+      const response = await fetch('http://localhost:8000/cloud-agent/_system/health', {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      
+      console.log('Health check response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error ${response.status}: ${errorText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Health check response:', data);
+      
+      showStatus(`Health endpoint successful - Version: ${data.version}`, 'success');
+    } catch (error) {
+      console.error('Health check failed:', error);
+      showStatus(`Health check failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
+  }
+
+  /**
+   * Test connection to the Issuer API
+   */
+  async function testIssuerAPI() {
+    try {
+      showStatus('Testing Issuer API connection...', 'loading');
+      
+      // Get the cloud service from the agent
+      const cloudService = agent.getCloudService();
+      
+      if (!cloudService) {
+        showStatus('Cloud API service not initialized', 'error');
+        return;
+      }
+      
+      // Test the connection using the proper health endpoint
+      const result = await cloudService.testConnection();
+      
+      if (result.success) {
+        showStatus('Issuer API connection successful', 'success');
+        
+        // Also test listing DIDs
+        const didsResult = await cloudService.getAllDIDs();
+        if (didsResult.success) {
+          console.log('DIDs retrieved:', didsResult.dids);
+          showStatus(`Connection successful - found ${didsResult.dids?.length || 0} DIDs`, 'success');
+        }
+      } else {
+        showStatus(`Issuer API connection failed: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      console.error('Error testing Issuer API:', error);
+      showStatus(`Error testing API: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
+  }
+
+  /**
+   * Test connection to the Verifier API
+   */
+  async function testVerifierAPI() {
+    window.debugLog('Testing Verifier API (port 9000)...');
+    
+    try {
+      const response = await fetch('http://localhost:9000/health', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        window.debugLog('Verifier API is up!', data);
+      } else {
+        window.debugLog('Verifier API error:', response.statusText);
+      }
+    } catch (error) {
+      window.debugLog('Verifier API connection failed:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function addCloudAPIButton() {
+    const setupTab = document.getElementById('setup-tab');
+    if (!setupTab) return;
+  
+    // Check if button already exists
+    if (setupTab.querySelector('#configure-cloud-api')) return;
+  
+    const cloudApiButton = document.createElement('button');
+    cloudApiButton.id = 'configure-cloud-api';
+    cloudApiButton.className = 'secondary-button';
+    cloudApiButton.textContent = 'Configure Cloud API';
+    cloudApiButton.style.marginTop = '20px';
+    
+    cloudApiButton.addEventListener('click', async () => {
+      const apiUrl = prompt('Enter Cloud API URL:', 'http://localhost:8000/');
+      const apiKey = prompt('Enter API Key (optional):');
+      
+      if (apiUrl) {
+        const config = {
+          baseUrl: apiUrl,
+          apiKey: apiKey || undefined
+        };
+        
+        await ChromeStorage.set('cloud_api_config', config);
+        
+        // Reinitialize agent with Cloud API
+        try {
+          await agent.initialize(config);
+          showStatus('Cloud API configured successfully', 'success');
+        } catch (error) {
+          showStatus('Failed to configure Cloud API', 'error');
+        }
+      }
+    });
+  
+    const buttonContainer = setupTab.querySelector('.button-container');
+    if (buttonContainer) {
+      buttonContainer.appendChild(cloudApiButton);
+    }
+  }
+
+  
+  /**
+   * Test getting the status of the selected DID
+   */
+  async function testGetDIDStatus() {
+    if (!selectedDID) {
+      window.debugLog('No DID selected. Please select a DID first.');
+      return;
+    }
+    
+    window.debugLog(`Checking status for DID: ${selectedDID.id.substring(0, 20)}...`);
+    
+    try {
+      // First check if we have an operation ID stored
+      const operation = await ChromeStorage.getDIDOperation(selectedDID.id);
+      window.debugLog('Operation data:', operation);
+      
+      // Check status via DID Manager
+      const status = await didManager.checkBlockchainStatus(selectedDID.id);
+      window.debugLog('Blockchain status:', status);
+      
+      // Try to resolve the DID directly
+      const cloudService = agent.getCloudService();
+      if(cloudService != null) {
+
+      try {
+        window.debugLog('Attempting to resolve DID...');
+        const resolved = await cloudService.resolveDID(selectedDID.id);
+        window.debugLog('DID resolved successfully!', {
+          didMethod: resolved.did.split(':')[1],
+          documentSize: JSON.stringify(resolved.document).length
+        });
+      } catch (resolveError) {
+        window.debugLog('DID resolution failed:', resolveError instanceof Error ? resolveError.message : String(resolveError));
+      }
+    }
+    } catch (error) {
+      window.debugLog('Error checking DID status:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
+   * Debug: List all DIDs in storage
+   */
+  async function debugListAllDIDs() {
+    window.debugLog('Listing all DIDs in storage...');
+    
+    try {
+      const dids = await ChromeStorage.get('dids') || [];
+      window.debugLog(`Found ${dids.length} DIDs`);
+      
+      dids.forEach((did: any, index: number) => {
+        window.debugLog(`DID ${index + 1}:`, {
+          type: did.type,
+          alias: did.alias,
+          created: new Date(did.createdAt).toLocaleString(),
+          id: did.id.substring(0, 20) + '...'
+        });
+      });
+    } catch (error) {
+      window.debugLog('Error listing DIDs:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
+   * Check details of the last operation
+   */
+  async function checkLastOperation() {
+    window.debugLog('Checking last operation...');
+    
+    try {
+      // Get all stored keys
+      const keys = await ChromeStorage.getAllKeys();
+      const operationKeys = keys.filter(key => key.startsWith('did_operation_'));
+      
+      if (operationKeys.length === 0) {
+        window.debugLog('No operation data found in storage');
+        return;
+      }
+      
+      // Get the most recent operation
+      const operationData = await Promise.all(
+        operationKeys.map(async key => {
+          const data = await ChromeStorage.get(key);
+          return {
+            key,
+            data,
+            timestamp: data.timestamp ? new Date(data.timestamp) : new Date(0)
+          };
+        })
+      );
+      
+      // Sort by timestamp (most recent first)
+      operationData.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+      
+      const latestOperation = operationData[0];
+      window.debugLog('Latest operation:', latestOperation.data);
+      
+      // If it has an operation ID, check its status
+      if (latestOperation.data.operationId) {
+        try {
+          window.debugLog(`Checking status of operation ${latestOperation.data.operationId}...`);
+          
+          const cloudService = agent.getCloudService()//getIdentusCloudService();
+          if(cloudService != null) {
+          const status = await cloudService.checkOperationStatus(latestOperation.data.operationId);
+          window.debugLog('Operation status:', status);
+          }
+          
+          
+        } catch (statusError) {
+          window.debugLog('Error checking operation status:', statusError instanceof Error ? statusError.message : String(statusError));
+        }
+      }
+    } catch (error) {
+      window.debugLog('Error checking operations:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
   initializeIssueTab();
   updateDIDContactHandler();
 
   // Add HTML templates to the document if they don't exist
   addRequiredTemplates();
   initializeApplication();
+
+  // Add the Cloud API button
+  addCloudAPIButton();
 
   // Add this to expose the function globally
   (window as any).initializeApplication = initializeApplication;
@@ -1765,4 +2273,6 @@ window.addEventListener('error', (event) => {
 window.addEventListener('unhandledrejection', (event) => {
   console.error('Unhandled promise rejection:', event.reason);
 });
+
+
 

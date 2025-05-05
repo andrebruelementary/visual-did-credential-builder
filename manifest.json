@@ -21,6 +21,10 @@
     "storage",
     "tabs"
   ],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://localhost:8080/*"
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },

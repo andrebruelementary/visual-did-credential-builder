@@ -1,6 +1,7 @@
 import { Contact } from '../models/contact';
 import { StorageService } from './storageService';
 import { DIDInfo, DIDType } from '../didManager';
+import { ChromeStorage } from '../storage/ChromeStorage';
 
 /**
  * Manager class for all contact-related operations
@@ -8,25 +9,198 @@ import { DIDInfo, DIDType } from '../didManager';
 export class ContactManager {
   private eventListeners: Map<string, Set<Function>> = new Map();
 
-  constructor() { }
+  constructor() {
+    
+    // Listen for cloud configuration changes to trigger synchronization
+    ChromeStorage.addChangeListener('cloud_api_config', (newValue, oldValue) => {
+      if (newValue && (!oldValue || JSON.stringify(newValue) !== JSON.stringify(oldValue))) {
+        console.log('Cloud API configuration changed, synchronizing...');
+        this.synchronizeWithCloudAgent().catch(error => {
+          console.error('Failed to synchronize with cloud agent:', error);
+        });
+      }
+    });
+  }
+
+  /**
+   * Get contacts from cloud agent that can receive credentials
+   */
+  public async getCloudCredentialRecipients(): Promise<Contact[]> {
+    const cloudService = await this.getCloudServiceFromAgent();
+    if (!cloudService) {
+      return [];
+    }
+    
+    try {
+      const cloudDIDsResult = await cloudService.getAllDIDs();
+      if (!cloudDIDsResult.success || !cloudDIDsResult.dids) {
+        return [];
+      }
+      
+      // Get local DID contact flags
+      const localDIDs = await ChromeStorage.get('dids') || [];
+      
+      // Filter for DIDs that are marked as contacts and have holder capability
+      const recipients: Contact[] = [];
+      
+      for (const cloudDID of cloudDIDsResult.dids) {
+        const localDID = localDIDs.find((d: any) => d.id === cloudDID.did);
+        
+        if (localDID && localDID.isContact) {
+          // This DID is marked as a contact
+          recipients.push({
+            id: cloudDID.did,
+            name: localDID.alias || `cloud-${cloudDID.status.toLowerCase()}-${cloudDID.did.split(':').pop()?.substring(0, 8)}`,
+            did: cloudDID.did,
+            didType: localDID.type,
+            isLocal: true,
+            createdAt: localDID.createdAt
+          });
+        }
+      }
+      
+      return recipients;
+    } catch (error) {
+      console.error('Error getting cloud credential recipients:', error);
+      return [];
+    }
+  }
 
   /**
    * Get all contacts (both DID contacts and imported)
    */
   public async getAllContacts(): Promise<Contact[]> {
-    return await StorageService.getAllContacts();
+    // First, try to get all contacts including those from cloud agent
+    const allContacts = await StorageService.getAllContacts();
+    
+    // If we have a cloud service, check for DIDs that can be used as contacts
+    const cloudService = await this.getCloudServiceFromAgent();
+    if (cloudService) {
+      try {
+        const cloudDIDsResult = await cloudService.getAllDIDs();
+        if (cloudDIDsResult.success && cloudDIDsResult.dids) {
+          // Convert cloud DIDs to contacts for those marked as contacts in local storage
+          for (const cloudDID of cloudDIDsResult.dids) {
+            // Check if this DID is marked as a contact
+            const localDID = allContacts.find(c => c.id === cloudDID.did && c.isLocal);
+            
+            if (localDID && cloudDID.did.isContact) {
+              // Update the contact with status from cloud
+              const updatedContact: Contact = {
+                ...localDID,
+                did: cloudDID.did,
+                isLocal: true  // It's a local DID used as a contact
+              };
+              
+              // Replace the local contact with the updated one
+              const index = allContacts.findIndex(c => c.id === cloudDID.did);
+              if (index >= 0) {
+                allContacts[index] = updatedContact;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching DIDs from cloud agent:', error);
+      }
+    }
+    
+    return allContacts;
+  }
+
+  /**
+   * Get the cloud service from the agent if available
+   */
+  private async getCloudServiceFromAgent(): Promise<any> {
+    try {
+      // Get the agent from global context
+      const agent = (window as any).agent;
+      if (agent && agent.getCloudService) {
+        return agent.getCloudService();
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting cloud service:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Synchronize contacts with cloud agent DIDs
+   */
+  public async synchronizeWithCloudAgent(): Promise<void> {
+    const cloudService = await this.getCloudServiceFromAgent();
+    if (!cloudService) {
+      console.log('Cloud service not available for synchronization');
+      return;
+    }
+    
+    try {
+      // Get all DIDs from cloud agent
+      const cloudDIDsResult = await cloudService.getAllDIDs();
+      if (!cloudDIDsResult.success || !cloudDIDsResult.dids) {
+        return;
+      }
+      
+      // Get local contact flags
+      const localDIDs = await ChromeStorage.get('dids') || [];
+      
+      // Check each cloud DID and sync with local storage
+      for (const cloudDID of cloudDIDsResult.dids) {
+        const localDID = localDIDs.find((d: any) => d.id === cloudDID.did);
+        
+        if (localDID && localDID.isContact) {
+          // This DID is already marked as a contact
+          continue;
+        } else if (!localDID) {
+          // This is a new DID from the cloud agent
+          const newDIDInfo = {
+            id: cloudDID.did,
+            alias: `cloud-${cloudDID.status.toLowerCase()}-${cloudDID.did.split(':').pop()?.substring(0, 8) || 'unknown'}`,
+            type: 'issuer', // Default to issuer type
+            createdAt: new Date().toISOString(),
+            isContact: false
+          };
+          localDIDs.push(newDIDInfo);
+        }
+      }
+      
+      // Save updated DIDs back to storage
+      await ChromeStorage.set('dids', localDIDs);
+      
+      // Emit synchronization complete event
+      this.emitEvent('cloud-sync-complete', cloudDIDsResult.dids);
+    } catch (error) {
+      console.error('Error synchronizing with cloud agent:', error);
+      throw error;
+    }
   }
 
   /**
    * Get contacts that are suitable for receiving credentials (Holder DIDs)
    */
   public async getCredentialRecipients(): Promise<Contact[]> {
+    // Get all contacts including locally stored and imported contacts
     const contacts = await this.getAllContacts();
+    
+    // Get cloud DIDs that are marked as contacts
+    const cloudContacts = await this.getCloudCredentialRecipients();
+    
+    // Merge both lists and remove duplicates
+    const allContacts = [...contacts];
+    
+    // Add cloud contacts that aren't already in the list
+    cloudContacts.forEach(cloudContact => {
+      if (!allContacts.some(c => c.id === cloudContact.id)) {
+        allContacts.push(cloudContact);
+      }
+    });
+    
     // Filter to only include holders, unless there are none
-    const holders = contacts.filter(c => c.didType === DIDType.HOLDER);
-
+    const holders = allContacts.filter(c => c.didType === DIDType.HOLDER);
+    
     // If no holders are found, return all contacts
-    return holders.length > 0 ? holders : contacts;
+    return holders.length > 0 ? holders : allContacts;
   }
 
   /**

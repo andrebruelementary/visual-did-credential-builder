@@ -112,18 +112,18 @@ export class ChromeStorage {
   /**
    * Store operation information for a DID
    * @param didId The DID identifier
-   * @param operationData Information about the operation (e.g., hash, timestamp)
+   * @param operationData Information about the operation (e.g., operationId, timestamp)
    * @returns Promise that resolves when the operation is complete
    */
   public static async storeDIDOperation(didId: string, operationData: any): Promise<void> {
     const operationKey = `did_operation_${didId}`;
     try {
-      console.log(`Storing DID operation data for ${didId}`);
+      console.log(`Storing DID operation data for ${didId}:`, operationData);
 
-      // Include timestamp for reference
+      // Include timestamp for reference if not already present
       const enrichedData = {
         ...operationData,
-        timestamp: new Date().toISOString()
+        timestamp: operationData.timestamp || new Date().toISOString()
       };
 
       await this.set(operationKey, enrichedData);
@@ -160,6 +160,88 @@ export class ChromeStorage {
     } catch (error) {
       console.error(`Error clearing DID operation data for ${didId}:`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Store Cloud API operation information
+   * @param operationId The Cloud API operation ID
+   * @param operationData Information about the operation
+   * @returns Promise that resolves when the operation is complete
+   */
+  public static async storeCloudOperation(operationId: string, operationData: any): Promise<void> {
+    const operationKey = `cloud_operation_${operationId}`;
+    try {
+      console.log(`Storing Cloud operation data for ${operationId}:`, operationData);
+
+      // Include timestamp for reference if not already present
+      const enrichedData = {
+        ...operationData,
+        timestamp: operationData.timestamp || new Date().toISOString()
+      };
+
+      await this.set(operationKey, enrichedData);
+    } catch (error) {
+      console.error(`Error storing Cloud operation data for ${operationId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Retrieve Cloud API operation information
+   * @param operationId The Cloud API operation ID
+   * @returns Promise that resolves with the operation data or undefined if not found
+   */
+  public static async getCloudOperation(operationId: string): Promise<any | undefined> {
+    const operationKey = `cloud_operation_${operationId}`;
+    try {
+      return await this.get(operationKey);
+    } catch (error) {
+      console.error(`Error retrieving Cloud operation data for ${operationId}:`, error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Store a mapping between a DID and a Cloud API operation ID
+   * @param didId The DID identifier
+   * @param operationId The Cloud API operation ID
+   * @param type The type of operation (e.g., 'publish', 'create')
+   * @returns Promise that resolves when the operation is complete
+   */
+  public static async storeDIDOperationMapping(didId: string, operationId: string, type: string): Promise<void> {
+    try {
+      // Store the operation ID in the DID operation data
+      await this.storeDIDOperation(didId, {
+        operationId,
+        type,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Also store a reverse mapping for lookup by operation ID
+      await this.set(`operation_did_${operationId}`, {
+        didId,
+        type,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error(`Error storing DID-operation mapping:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the DID associated with a Cloud API operation ID
+   * @param operationId The Cloud API operation ID
+   * @returns Promise that resolves with the DID ID or undefined if not found
+   */
+  public static async getDIDForOperation(operationId: string): Promise<string | undefined> {
+    try {
+      const mapping = await this.get(`operation_did_${operationId}`);
+      return mapping?.didId;
+    } catch (error) {
+      console.error(`Error retrieving DID for operation ${operationId}:`, error);
+      return undefined;
     }
   }
 

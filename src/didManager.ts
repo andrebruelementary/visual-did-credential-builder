@@ -2,8 +2,6 @@ import SDK from '@hyperledger/identus-sdk';
 import { Agent } from './agent';
 import { ChromeStorage } from './storage/ChromeStorage';
 
-
-
 /**
 * Types of DIDs for different purposes
 */
@@ -22,6 +20,15 @@ export interface DIDInfo {
   type: DIDType;
   createdAt: string;
   isContact?: boolean; // Flag to indicate if this DID is saved as a contact
+}
+
+// Re-export from identusCloudService to avoid circular dependencies
+export interface DIDRegistrarResponse {
+  did: string;
+  longFormDid?: string;
+  status: 'CREATED' | 'PUBLICATION_PENDING' | 'PUBLISHED' | 'failed';
+  didDocumentMetadata?: any;
+  didDocument?: any;
 }
 
 /**
@@ -43,11 +50,11 @@ export class DIDManager {
   }
 
   /**
-  * Create a new DID
-  * @param type The type of DID to create (holder, issuer, verifier)
-  * @param alias Optional human-readable alias for the DID
-  * @returns Promise with the result of the DID creation
-  */
+   * Create a new DID
+   * @param type The type of DID to create (holder, issuer, verifier)
+   * @param alias Optional human-readable alias for the DID
+   * @returns Promise with the result of the DID creation
+   */
   async createDID(type: string, alias?: string): Promise<{ success: boolean, did?: string, error?: string }> {
     console.log(`Creating DID of type: ${type} with alias: ${alias}`);
 
@@ -59,21 +66,57 @@ export class DIDManager {
     }
 
     try {
+      // Get cloud service using the public getter
+      const cloudService = this.agent.getCloudService();
+      
+      // If Cloud API is available, use it
+      if (cloudService) {
+        console.log('Using Cloud API to create DID');
+        const cloudResult = await cloudService.createDID(type as DIDType);
+        
+        if (cloudResult.success && cloudResult.did) {
+          const didString = cloudResult.did.did;
+          
+          // Store the DID with the correct type and alias
+          const didAlias = alias || `${type}-did-${Date.now()}`;
+          await this.storeDID(didString, type as DIDType, didAlias);
+          
+          // After creating a DID, synchronize with cloud agent to ensure UI is updated
+          setTimeout(() => {
+            // This will reload the DID list
+            if (typeof window.loadDIDs === 'function') {
+              window.loadDIDs();
+            }
+          }, 500);
+          
+          return {
+            success: true,
+            did: didString
+          };
+        } else {
+          return {
+            success: false,
+            error: cloudResult.error || 'Unknown error creating DID'
+          };
+        }
+      }
+      
+      // Fall back to local SDK implementation
       // Get a proxy to the agent functionality
       const agentProxy = this.agent.getAgent();
-
+      
       // Generate default alias if not provided
       const didAlias = alias || `${type}-did-${Date.now()}`;
-
+      
       // Use the direct method with explicit type
       const did = await agentProxy.createDIDWithType(
         type as 'holder' | 'issuer' | 'verifier',
         didAlias
       );
-
+      
       // Convert the DID to string
       const didString = did.toString();
-
+      
       return {
         success: true,
         did: didString
@@ -85,6 +128,57 @@ export class DIDManager {
         error: `Failed to create DID: ${error instanceof Error ? error.message : String(error)}`
       };
     }
+  }
+
+  /**
+   * Store a DID with its type and alias
+   * @param did The DID string
+   * @param type The DID type
+   * @param alias The DID alias
+   */
+  private async storeDID(didString: string, type: DIDType | string, alias: string): Promise<void> {
+    console.log(`Storing DID with explicit type: ${type}, alias: ${alias}`);
+    
+    // Convert string type to DIDType enum if necessary
+    let didType: DIDType;
+    if (typeof type === 'string') {
+      switch (type.toLowerCase()) {
+        case 'holder':
+          didType = DIDType.HOLDER;
+          break;
+        case 'issuer':
+          didType = DIDType.ISSUER;
+          break;
+        case 'verifier':
+          didType = DIDType.VERIFIER;
+          break;
+        default:
+          didType = DIDType.HOLDER; // Default to HOLDER if unknown
+      }
+    } else {
+      didType = type;
+    }
+    
+    // Get existing DIDs
+    const dids = await this.getAllDIDs();
+    
+    // Create DID info object
+    const didInfo: DIDInfo = {
+      id: didString,
+      alias: alias,
+      type: didType,
+      createdAt: new Date().toISOString()
+    };
+    
+    console.log("DID info being stored:", didInfo);
+    
+    // Add new DID
+    dids.push(didInfo);
+    
+    // Store updated list
+    console.log("Storing DIDs:", dids);
+    await ChromeStorage.set('dids', dids);
+    console.log("DIDs stored successfully");
   }
 
   /**
@@ -119,7 +213,7 @@ export class DIDManager {
   }
 
   /**
-   * Publish a DID to the blockchain
+   * Publish a DID to the blockchain via Cloud API
    * @param didId The DID string to publish
    * @returns Promise with the result of the DID publication
    */
@@ -164,7 +258,7 @@ export class DIDManager {
         console.log('DID not yet published, proceeding with publication');
       }
 
-      // Use the agent to publish the DID
+      // Use the agent to publish the DID via Cloud API
       const published = await this.agent.publishDID(didId);
 
       if (published) {
@@ -191,7 +285,7 @@ export class DIDManager {
   }
 
   /**
-   * Check blockchain status of a DID
+   * Check blockchain status of a DID using Cloud API
    * @param didId DID identifier
    * @returns Promise with the blockchain status
    */
@@ -201,12 +295,23 @@ export class DIDManager {
         return 'unknown';
       }
 
-      // Get the Castor service
-      const castor = this.agent.getCastor();
+      // Check if there's an operation ID for this DID
+      const operation = await ChromeStorage.getDIDOperation(didId);
+      if (operation && operation.operationId) {
+        // If we have an operation ID, check the status via Cloud API
+        const status = await this.agent.checkOperationStatus(operation.operationId);
+        
+        // Update the DID status in storage
+        await this.updateDIDStatus(didId, status);
+        
+        return status;
+      }
 
-      // Try to resolve the DID
+      // If no operation ID found, try to resolve the DID to see if it's already published
       try {
+        const castor = this.agent.getCastor();
         await castor.resolveDID(didId);
+        
         // If resolution succeeds, the DID is published
         await this.updateDIDStatus(didId, 'published');
         return 'published';
@@ -228,7 +333,7 @@ export class DIDManager {
   }
 
   /**
-   * Start polling for blockchain confirmation
+   * Start polling for blockchain confirmation using Cloud API
    * @param didId DID identifier
    * @param callback Function to call with status updates
    * @param maxAttempts Maximum number of polling attempts
@@ -245,6 +350,11 @@ export class DIDManager {
     this.updateDIDStatus(didId, 'publishing');
     callback('pending');
 
+    // Get operation data from storage
+    ChromeStorage.getDIDOperation(didId).then(operation => {
+      console.log(`Retrieved operation data for DID ${didId}:`, operation);
+    });
+
     const pollId = window.setInterval(async () => {
       attempts++;
 
@@ -252,12 +362,12 @@ export class DIDManager {
         const status = await this.checkBlockchainStatus(didId);
         callback(status);
 
-        if (status === 'published' || attempts >= maxAttempts) {
-          // If published or max attempts reached, stop polling
+        if (status === 'published' || status === 'failed' || attempts >= maxAttempts) {
+          // If published, failed, or max attempts reached, stop polling
           clearInterval(pollId);
 
-          if (attempts >= maxAttempts && status !== 'published') {
-            // If max attempts reached and not published, mark as failed
+          if (attempts >= maxAttempts && status !== 'published' && status !== 'failed') {
+            // If max attempts reached and not published or failed, mark as failed
             await this.updateDIDStatus(didId, 'failed');
             callback('failed');
           }
@@ -284,7 +394,7 @@ export class DIDManager {
    * @param status New status value
    * @returns Promise with success boolean
    */
-  private async updateDIDStatus(didId: string, status: string, details?: any): Promise<boolean> {
+  public async updateDIDStatus(didId: string, status: string, details?: any): Promise<boolean> {
     try {
       // Store the status
       await ChromeStorage.storeDIDStatus(didId, status);
@@ -305,21 +415,182 @@ export class DIDManager {
    * @returns Promise with the status string or undefined if not set
    */
   public async getDIDStatus(didId: string): Promise<string | undefined> {
+    const cloudService = this.agent.getCloudService();
+    
+    // First try to get status from cloud agent if available
+    if (cloudService) {
+      try {
+        const cloudStatus = await cloudService.getDIDStatus(didId);
+        if (cloudStatus.status !== 'failed') {
+          return cloudStatus.status;
+        }
+      } catch (error) {
+        console.warn(`Error getting DID status from cloud agent: ${error}`);
+        // Fall through to local storage check
+      }
+    }
+    
+    // Fall back to local storage
     try {
       return await ChromeStorage.getDIDStatus(didId);
     } catch (error) {
-      console.error(`❌ Error getting DID status:`, error);
+      console.error(`❌ Error getting DID status from local storage:`, error);
       return undefined;
     }
   }
 
   /**
-   * Get all stored DIDs
+   * Synchronize local DIDs with cloud agent
+   * @returns Promise with success boolean
+   */
+  public async synchronizeWithCloud(): Promise<boolean> {
+    const cloudService = this.agent.getCloudService();
+    
+    if (!cloudService) {
+      console.log('No cloud service available for synchronization');
+      return false;
+    }
+    
+    try {
+      console.log('Synchronizing DIDs with cloud agent...');
+      
+      // Get all DIDs from cloud agent
+      const cloudResult = await cloudService.getAllDIDs();
+      
+      if (!cloudResult.success || !cloudResult.dids) {
+        console.error('Failed to get DIDs from cloud agent');
+        return false;
+      }
+      
+      // Get local DIDs
+      const localDIDs = (await ChromeStorage.get('dids') || []) as DIDInfo[];
+
+      // Create a map of existing local DIDs for quick lookup  
+      const localDIDMap = new Map<string, DIDInfo>(localDIDs.map((did) => [did.id, did]));
+
+      // Update or add cloud DIDs to local storage with explicit type
+      const updatedDIDs: DIDInfo[] = cloudResult.dids.map((cloudDID) => {
+        const localDID = localDIDMap.get(cloudDID.did);
+        
+        return {
+          id: cloudDID.did,
+          alias: localDID?.alias || `cloud-${cloudDID.status?.toLowerCase()}-${cloudDID.did.split(':').pop()?.substring(0, 8) || 'unknown'}`,
+          type: localDID?.type || this.determineDIDType(cloudDID),
+          createdAt: localDID?.createdAt || new Date().toISOString(),
+          isContact: localDID?.isContact === true
+        };
+      });
+      
+      // Update local storage
+      await ChromeStorage.set('dids', updatedDIDs);
+      
+      console.log(`Synchronized ${updatedDIDs.length} DIDs from cloud agent`);
+      
+      // Emit event for subscribers
+      this.emitEvent('dids-synchronized', updatedDIDs);
+      
+      return true;
+    } catch (error) {
+      console.error('Error synchronizing DIDs with cloud agent:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get all stored DIDs, prioritizing cloud agent if available
    * @returns Promise with array of DID info
    */
   public async getAllDIDs(): Promise<DIDInfo[]> {
+    const cloudService = this.agent.getCloudService();
+    
+    if (cloudService) {
+      try {
+        // Get DIDs from cloud agent
+        const cloudResult = await cloudService.getAllDIDs();
+        
+        if (cloudResult.success && cloudResult.dids) {
+          // Convert cloud DIDs to our DIDInfo format
+          const cloudDIDs: DIDInfo[] = await Promise.all(
+            cloudResult.dids.map(async (cloudDID) => {
+              // Try to get existing local info for alias and contact status
+              const localDIDs = await ChromeStorage.get('dids') || [];
+              const localDID = localDIDs.find((d: DIDInfo) => d.id === cloudDID.did);
+              
+              return {
+                id: cloudDID.did,
+                alias: localDID?.alias || `cloud-${cloudDID.status?.toLowerCase()}-${cloudDID.did.split(':').pop()?.substring(0, 8) || 'unknown'}`,
+                type: this.determineDIDType(cloudDID),
+                createdAt: localDID?.createdAt || new Date().toISOString(),
+                isContact: localDID?.isContact || false
+              };
+            })
+          );
+          
+          // Update local storage to stay in sync
+          await ChromeStorage.set('dids', cloudDIDs);
+          
+          return cloudDIDs;
+        }
+      } catch (error) {
+        console.error('Error getting DIDs from cloud agent:', error);
+      }
+    }
+    
+    // Fall back to local storage
     const dids = await ChromeStorage.get('dids') || [];
     return dids;
+  }
+
+  /**
+   * Determine DID type based on cloud DID data
+   * @param cloudDID The DID data from cloud agent
+   * @returns DIDType
+   */
+  private determineDIDType(cloudDID: any): DIDType {
+    // Try to infer type from the DID's keys or services
+    if (cloudDID.longFormDid) {
+      // Parse the long-form DID to check key purposes
+      try {
+        const didData = cloudDID.longFormDid.split(':').pop();
+        
+        // Check if it contains issue-related keys
+        if (didData?.includes('issue')) {
+          return DIDType.ISSUER;
+        }
+        // Check if it contains verify-related keys
+        if (didData?.includes('verify')) {
+          return DIDType.VERIFIER;
+        }
+      } catch (e) {
+        // If parsing fails, use default
+      }
+    }
+    
+    // Default to HOLDER if we can't determine type
+    return DIDType.HOLDER;
+  }
+
+  /**
+   * Get DIDs that can be used as contacts (marked as contacts or all DIDs from cloud agent)
+   * @returns Promise with array of contact-ready DIDs
+   */
+  public async getDIDsForContacts(): Promise<DIDInfo[]> {
+    const allDIDs = await this.getAllDIDs();
+    const cloudService = this.agent.getCloudService();
+    
+    if (cloudService) {
+      // If using cloud agent, return all DIDs as potential contacts
+      // but filter out the locally created ones (they won't be in cloud agent)
+      const cloudResult = await cloudService.getAllDIDs();
+      
+      if (cloudResult.success && cloudResult.dids) {
+        const cloudDIDIds = new Set(cloudResult.dids.map(d => d.did));
+        return allDIDs.filter(did => cloudDIDIds.has(did.id) || did.isContact);
+      }
+    }
+    
+    // Fall back to only DIDs marked as contacts in local storage
+    return allDIDs.filter(did => did.isContact === true);
   }
 
   /**
@@ -360,22 +631,6 @@ export class DIDManager {
   public async getFirstDIDOfType(type: DIDType): Promise<DIDInfo | undefined> {
     const dids = await this.getDIDsByType(type);
     return dids.length > 0 ? dids[0] : undefined;
-  }
-
-  /**
-   * Store operation details for a DID publication
-   * @param didId DID identifier
-   * @param operationData Operation details from blockchain
-   * @returns Promise with success boolean
-   */
-  private async storeOperationDetails(didId: string, operationData: any): Promise<boolean> {
-    try {
-      await ChromeStorage.storeDIDOperation(didId, operationData);
-      return true;
-    } catch (error) {
-      console.error(`❌ Error storing operation details:`, error);
-      return false;
-    }
   }
 
   /**
@@ -505,8 +760,6 @@ export class DIDManager {
     }
   }
 
-  // Add these methods to the DIDManager class in didManager.ts
-
   /**
    * Mark or unmark a DID as a contact
    * @param didId The DID identifier
@@ -561,7 +814,6 @@ export class DIDManager {
     const dids = await this.getAllDIDs();
     return dids.filter(did => did.isContact === true);
   }
-
 }
 
 // Export a factory function
@@ -576,5 +828,3 @@ export function getDIDManager(agent?: Agent, storage?: ChromeStorage): DIDManage
   }
   return instance;
 }
-
-

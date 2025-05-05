@@ -329,6 +329,11 @@ select.input-field {
   gap: 5px;
 }
 
+.did-status-publication-pending {
+  background-color: #fff8e1;
+  color: #ff8f00;
+}
+
 .alias-save-btn,
 .alias-cancel-btn {
   background-color: transparent;

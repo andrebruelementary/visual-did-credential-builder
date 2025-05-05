@@ -1,5 +1,6 @@
 import SDK from '@hyperledger/identus-sdk';
 import { ChromeStorage } from './storage/ChromeStorage';
+import { IdentusCloudService } from './services/identusCloudService';
 
 /**
  * Agent status for tracking initialization
@@ -9,6 +10,23 @@ enum AgentStatus {
   INITIALIZING = 'initializing',
   INITIALIZED = 'initialized',
   FAILED = 'failed'
+}
+
+/**
+ * Interface for Cloud API response when publishing a DID
+ */
+interface PublishDIDResponse {
+  operationId: string;
+  status: string;
+}
+
+/**
+ * Interface for Cloud API operation status
+ */
+interface OperationStatus {
+  status: string;
+  result?: any;
+  error?: string;
 }
 
 /**
@@ -25,16 +43,18 @@ export class Agent {
   // Store important objects for reuse
   private seed: SDK.Domain.Seed | null = null;
   private castor: SDK.Castor | null = null;
-  //private pollux: SDK.Pollux | null = null;
   private mercury: SDK.Mercury | null = null;
   private mediatorHandler: SDK.BasicMediatorHandler | null = null;
   private connectionsManager: SDK.ConnectionsManager | null = null;
-  private nodeUrl: string = 'http://localhost:5432';
+  private cloudService: IdentusCloudService | null = null;
+  
+  // Cloud API configuration
+  private cloudApiUrl: string = 'https://api.atalaprism.io/v1';
+  private nodeUrl: string = 'http://localhost:5432'; // Local node fallback
 
   // Store important keys
   private edKey: SDK.Domain.PrivateKey | null = null;
  
-
   constructor() {}
 
   /**
@@ -74,9 +94,9 @@ export class Agent {
   }
 
   /**
- * Get the API service
- * For blockchain operations
- */
+   * Get the API service
+   * For blockchain operations
+   */
   public getAPI(): any {
     if (!this.agent) {
       throw new Error('Agent not initialized');
@@ -115,69 +135,58 @@ export class Agent {
   }
 
   /**
-   * Diagnostic function to inspect a private key
-   * @param key The private key to inspect
-   * @param stage Description of when this inspection is happening
+   * Initialize the agent with optional cloud service
    */
-  private inspectPrivateKey(key: SDK.Domain.PrivateKey | null, stage: string): void {
-    console.log(`[DEBUG] Private key inspection at stage: ${stage}`);
-    
-    if (!key) {
-      console.error(`[DEBUG] Key is null at stage: ${stage}`);
-      return;
-    }
-    
+  public async initialize(cloudServiceConfig?: {baseUrl: string, apiKey?: string}): Promise<boolean> {
     try {
-      // Safely check properties without throwing errors
-      const safeGetProperty = (prop: string) => {
-        try {
-          return key.getProperty(prop);
-        } catch (e) {
-          return `Error accessing: ${e instanceof Error ? e.message : String(e)}`;
-        }
-      };
+      this.status = AgentStatus.INITIALIZING;
       
-      // Get all available properties
-      const knownProps = [
-        SDK.Domain.KeyProperties.curve,
-        SDK.Domain.KeyProperties.type,
-        SDK.Domain.KeyProperties.rawKey,
-        // Add any other known property constants from the SDK
-      ];
+      // Initialize Apollo for cryptographic operations
+      console.log("Initializing Apollo");
+      this.apollo = new SDK.Apollo();
       
-      // Build diagnostics object
-      const keyDiagnostics = {
-        type: typeof key,
-        isInstanceOf: key.constructor ? key.constructor.name : 'unknown',
-        properties: Object.getOwnPropertyNames(key),
-        methods: Object.getOwnPropertyNames(Object.getPrototypeOf(key)),
-        known_properties: knownProps.reduce((acc, prop) => {
-          acc[prop] = safeGetProperty(prop);
-          return acc;
-        }, {} as Record<string, any>),
-        has_raw_key: !!safeGetProperty(SDK.Domain.KeyProperties.rawKey),
-        raw_key_type: safeGetProperty(SDK.Domain.KeyProperties.rawKey) ? 
-                      typeof safeGetProperty(SDK.Domain.KeyProperties.rawKey) : 'N/A',
-        can_sign: typeof (key as any).sign === 'function'
-      };
+      // Create a random seed
+      console.log("Creating random seed");
+      const { seed } = this.apollo.createRandomSeed();
+      this.seed = seed;
       
-      console.log(`[DEBUG] Key details at ${stage}:`, keyDiagnostics);
+      // Store the seed for later use
+      await this.storeSeed(seed);
       
-      // Try to sign something as a test
-      if (typeof (key as any).sign === 'function') {
-        try {
-          const testData = new Uint8Array([1, 2, 3, 4, 5]);
-          const signature = (key as any).sign(testData);
-          console.log(`[DEBUG] Test signing at ${stage} - SUCCESS:`, {
-            signature_type: typeof signature,
-            signature_length: signature instanceof Uint8Array ? signature.length : 'N/A'
-          });
-        } catch (e) {
-          console.error(`[DEBUG] Test signing at ${stage} - FAILED:`, e);
+      // Initialize storage
+      console.log("Initializing storage");
+      const storageAdapter = new ChromeStorage();
+      this.storage = new SDK.Pluto(storageAdapter, this.apollo);
+      
+      // Initialize Castor for DID operations
+      console.log("Initializing Castor");
+      this.castor = new SDK.Castor(this.apollo);
+      
+      // Initialize API
+      console.log("Initializing API for node at localhost:5432");
+      this.api = new SDK.ApiImpl();
+      
+      // Initialize Cloud API service if config provided
+      if (cloudServiceConfig) {
+        console.log("Initializing Cloud API service");
+        this.cloudService = new IdentusCloudService(cloudServiceConfig.baseUrl, cloudServiceConfig.apiKey);
+        
+        // Test the connection
+        const testResult = await this.cloudService.testConnection();
+        if (!testResult.success) {
+          console.error('Cloud API connection test failed:', testResult.error);
         }
       }
-    } catch (e) {
-      console.error(`[DEBUG] Error inspecting key at ${stage}:`, e);
+      
+      // Set as initialized with the minimal configuration
+      console.log("Setting up minimal environment for DID operations");
+      this.status = AgentStatus.INITIALIZED;
+      
+      return true;
+    } catch (error) {
+      console.error("Initialization failed:", error);
+      this.status = AgentStatus.FAILED;
+      return false;
     }
   }
 
@@ -276,6 +285,188 @@ export class Agent {
       throw error;
     }
   }
+
+  /**
+   * Get the Cloud Service if available
+   */
+  public getCloudService(): IdentusCloudService | null {
+    return this.cloudService;
+  }
+
+  /**
+   * Publish a DID to the blockchain using the Cloud API
+   * @param didString The DID string to publish
+   * @returns Promise with success result
+   */
+  public async publishDID(didString: string): Promise<boolean> {
+    if (!this.isInitialized()) {
+      throw new Error('Agent not initialized');
+    }
+
+    try {
+      console.log(`Publishing DID to blockchain via Cloud API: ${didString}`);
+
+      // Get the private key for this DID
+      const privateKey = await this.getPrivateKeyForDID(didString);
+      if (!privateKey) {
+        throw new Error('Private key not found for this DID');
+      }
+
+      // Get the Cloud Service instance
+      const cloudService = this.getCloudService();
+      if(cloudService == null) return false;
+      
+      // Call the Cloud API directly to publish the DID
+      const operationId = await cloudService.publishDID(didString);
+      
+      if (operationId) {
+        // Store the operation ID for status checking
+        await ChromeStorage.storeDIDOperation(didString, {
+          operationId,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Update the DID status to publishing
+        await ChromeStorage.storeDIDStatus(didString, 'publishing');
+        
+        console.log(`DID publication initiated, operation ID: ${operationId}`);
+        return true;
+      } else {
+        throw new Error('Failed to get operation ID from Cloud API');
+      }
+    } catch (error) {
+      console.error('Error publishing DID to blockchain:', error);
+      return false;
+    }
+  }
+
+  /**
+ * Prepare the DID data for the Cloud API
+ * @param didString The DID string
+ * @param privateKey The private key for the DID
+ * @returns The prepared data for the Cloud API
+ */
+private async prepareCloudDIDData(didString: string, privateKey: SDK.Domain.PrivateKey): Promise<any> {
+  try {
+    // Parse the DID
+    const did = this.castor?.parseDID(didString);
+    if (!did) {
+      throw new Error('Failed to parse DID');
+    }
+    
+    // Get DID document data (this is a workaround to avoid resolving unpublished DIDs)
+    const didDocumentData: {
+      id: string;
+      verificationMethod: Array<{
+        id: string;
+        type: string;
+        controller: string;
+        publicKeyMultibase: string;
+      }>;
+      service: any[];
+    } = {
+      id: didString,
+      verificationMethod: [],
+      service: []
+    };
+    
+    // Extract verification method from private key
+    const publicKey = (privateKey as any).publicKey();
+    const keyId = `${didString}#${publicKey.fingerprint()}`;
+    
+    // Create verification method entry
+    const verificationMethod = {
+      id: keyId,
+      type: 'Ed25519VerificationKey2020',
+      controller: didString,
+      publicKeyMultibase: Buffer.from(publicKey.raw).toString('base64')
+    };
+    
+    didDocumentData.verificationMethod.push(verificationMethod);
+    
+    // Prepare the final data structure for the Cloud API
+    return {
+      did: didString,
+      document: didDocumentData,
+      privateKeyData: {
+        keyId: keyId,
+        privateKey: Buffer.from((privateKey as any).raw).toString('base64')
+      }
+    };
+  } catch (error) {
+    console.error('Error preparing DID data for Cloud API:', error);
+    throw error;
+  }
+}
+
+  /**
+   * Publish a DID using the Cloud API
+   * @param didData The prepared DID data
+   * @returns The operation ID from the Cloud API
+   */
+  private async publishDIDViaCloudAPI(didData: any): Promise<string | null> {
+    try {
+      console.log('Calling Cloud API to publish DID...');
+      
+      // Make the API request
+      const response = await fetch(`${this.cloudApiUrl}/dids/publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(didData)
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`Cloud API error: ${errorData.message || response.statusText}`);
+      }
+      
+      const data = await response.json() as PublishDIDResponse;
+      return data.operationId;
+    } catch (error) {
+      console.error('Error calling Cloud API:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check the status of a DID publication operation via Cloud API
+   * @param operationId The operation ID from the Cloud API
+   * @returns The status of the operation
+   */
+  public async checkOperationStatus(operationId: string): Promise<string> {
+    try {
+      const response = await fetch(`${this.cloudApiUrl}/operations/${operationId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to check operation status: ${response.statusText}`);
+      }
+      
+      const data = await response.json() as OperationStatus;
+      
+      // Map API statuses to our internal statuses
+      switch (data.status.toUpperCase()) {
+        case 'COMPLETED':
+          return 'published';
+        case 'FAILED':
+          return 'failed';
+        case 'PENDING':
+        case 'PROCESSING':
+          return 'pending';
+        default:
+          return 'pending';
+      }
+    } catch (error) {
+      console.error('Error checking operation status:', error);
+      return 'failed';
+    }
+  }
   
   /**
    * Store a seed for a DID
@@ -321,109 +512,6 @@ export class Agent {
     });
   }
 
-  /**
-   * Initialize the agent without mediator connectivity
-   * Focused on DID creation, publishing, and credential operations
-   */
-  public async initialize(): Promise<boolean> {
-    try {
-      this.status = AgentStatus.INITIALIZING;
-      
-      // Initialize Apollo for cryptographic operations
-      console.log("Initializing Apollo");
-      this.apollo = new SDK.Apollo();
-      
-      // Create a random seed
-      console.log("Creating random seed");
-      const { seed } = this.apollo.createRandomSeed();
-      this.seed = seed;
-      
-      // Store the seed for later use
-      await this.storeSeed(seed);
-      
-      // Initialize storage
-      console.log("Initializing storage");
-      const storageAdapter = new ChromeStorage();
-      this.storage = new SDK.Pluto(storageAdapter, this.apollo);
-      
-      // Initialize Castor for DID operations
-      console.log("Initializing Castor");
-      this.castor = new SDK.Castor(this.apollo);
-      
-      // Initialize API
-      console.log("Initializing API for node at localhost:5432");
-      this.api = new SDK.ApiImpl();
-      
-      // Since there's no configuration method, we'll need to handle the URL in the submit operation
-      this.nodeUrl = 'http://localhost:5432';
-      
-      // Set as initialized with the minimal configuration
-      console.log("Setting up minimal environment for DID operations");
-      this.status = AgentStatus.INITIALIZED;
-      
-      return true;
-    } catch (error) {
-      console.error("Initialization failed:", error);
-      this.status = AgentStatus.FAILED;
-      return false;
-    }
-  }
-
-  /**
-   * Create a new DID
-   * @param type The type of DID to create (holder, issuer, verifier)
-   * @param alias Optional human-readable alias for the DID
-   * @returns Promise with the result of the DID creation
-   */
-  async createDID(type: string, alias?: string): Promise<{ success: boolean, did?: string, error?: string }> {
-    console.log(`Creating DID of type: ${type} with alias: ${alias}`);
-
-    if (!this.isInitialized()) {
-      return {
-        success: false,
-        error: 'Agent not initialized. Please initialize first.'
-      };
-    }
-
-    try {
-      // Get a proxy to the agent functionality
-      const agentProxy = this.getAgent();
-
-      // Generate default alias if not provided
-      const didAlias = alias || `${type}-did-${Date.now()}`;
-
-      // Use the direct method with explicit type
-      const did = await agentProxy.createDIDWithType(
-        type as 'holder' | 'issuer' | 'verifier',
-        didAlias
-      );
-
-      // Convert the DID to string
-      const didString = did.toString();
-
-      return {
-        success: true,
-        did: didString
-      };
-    } catch (error) {
-      console.error('Failed to create DID:', error);
-      return {
-        success: false,
-        error: `Failed to create DID: ${error instanceof Error ? error.message : String(error)}`
-      };
-    }
-  }
-
-  private base64ToArrayBuffer(base64: string): Uint8Array {
-    const binaryString = atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes;
-  }
-  
   /**
    * Store a private key for a DID with proper serialization
    */
@@ -504,137 +592,6 @@ export class Agent {
     });
   }
 
-  /**
-   * Publish a DID to the blockchain
-   */
-  public async publishDID(didString: string): Promise<boolean> {
-    if (!this.isInitialized()) {
-      throw new Error('Agent not initialized');
-    }
-
-    if (!this.apollo || !this.castor || !this.api) {
-      throw new Error('Required services not initialized');
-    }
-
-    try {
-      console.log(`Publishing DID to blockchain: ${didString}`);
-
-      // Parse the DID string to get a DID object
-      const did = this.castor.parseDID(didString);
-      console.log("Successfully parsed DID:", {
-        didMethod: did.method,
-        didIdentifier: did.toString()
-      });
-
-      // Get the private key for this DID
-      const privateKey = await this.getPrivateKeyForDID(didString);
-      if (!privateKey) {
-        throw new Error('Private key not found for this DID');
-      }
-      
-      // Log key details to help diagnose issues
-      console.log("About to create Atala object with key:", {
-        keyType: typeof privateKey,
-        keyHasRaw: 'raw' in privateKey,
-        rawType: typeof (privateKey as any).raw,
-        rawLength: (privateKey as any).raw?.length,
-        hasDeriveMethod: typeof (privateKey as any).derive === 'function',
-        hasSignMethod: typeof (privateKey as any).sign === 'function',
-        keyProperties: Object.getOwnPropertyNames(privateKey),
-        recoveryId: (privateKey as any).recoveryId
-      });
-      
-      console.log("Successfully retrieved private key for DID");
-
-      // Try to create a public key from the private key
-      try {
-        const publicKey = (privateKey as any).publicKey();
-        console.log("Successfully derived public key from private key");
-      } catch (e) {
-        console.error("Warning: Could not derive public key from private key:", e);
-      }
-
-      // Check if key is a Secp256k1PrivateKey which is required by the SDK
-      if ((privateKey as any).recoveryId !== 'secp256k1+priv') {
-        const errorMessage = `This DID was created with a ${(privateKey as any).recoveryId} key, but only Secp256k1 keys are supported for publication. Please create a new DID of type issuer or verifier which will use a Secp256k1 key.`;
-        console.error(errorMessage);
-        throw new Error(errorMessage);
-      }
-
-      try {
-        console.log("Creating Atala object for DID publication...");
-        const atalaObject = await this.castor.createPrismDIDAtalaObject(privateKey, did);
-        
-        // Manually submit to blockchain using the request method of the API
-        const endpoint = `${this.nodeUrl}/prism-node/operations`;
-        const atalaObjectBase64 = this.arrayBufferToBase64(atalaObject);
-        
-        const requestBody = {
-          operation: atalaObjectBase64
-        };
-
-        const response = await this.api.request(
-          'POST',
-          endpoint,
-          undefined, // No URL parameters
-          new Map([['Content-Type', 'application/json']]), // Headers
-          requestBody
-        );
-
-        console.log(`DID publication request submitted: ${didString}`, response);
-        return true;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        throw new Error(`Cannot sign with this key: ${errorMessage}`);
-      }
-    } catch (error) {
-      console.error(`Failed to publish DID: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
-    }
-  }
-  
-  // Helper method to convert array buffer to base64
-  private arrayBufferToBase64(buffer: Uint8Array | ArrayBuffer): string {
-    // First convert to binary string
-    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    // Then convert to base64
-    return btoa(binary);
-  }
-
-  /**
-   * Diagnostic function for serialized key data
-   * @param serializedKey The serialized key object
-   * @param stage Description of when this inspection is happening
-   */
-  private inspectSerializedKey(serializedKey: any, stage: string): void {
-    console.log(`[DEBUG] Serialized key inspection at stage: ${stage}`);
-    
-    if (!serializedKey) {
-      console.error(`[DEBUG] Serialized key is null/undefined at stage: ${stage}`);
-      return;
-    }
-    
-    try {
-      const diagnostics = {
-        properties: Object.keys(serializedKey),
-        type: serializedKey.type,
-        curve: serializedKey.curve,
-        has_raw_base64: !!serializedKey.rawBase64,
-        raw_base64_length: serializedKey.rawBase64 ? serializedKey.rawBase64.length : 0,
-        raw_base64_prefix: serializedKey.rawBase64 ? 
-                          serializedKey.rawBase64.substring(0, 20) + '...' : 'N/A'
-      };
-      
-      console.log(`[DEBUG] Serialized key details at ${stage}:`, diagnostics);
-    } catch (e) {
-      console.error(`[DEBUG] Error inspecting serialized key at ${stage}:`, e);
-    }
-  }
-  
   /**
    * Store the agent seed in Chrome storage
    * @param seed The seed to store

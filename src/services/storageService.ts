@@ -3,6 +3,7 @@ import { Contact } from '../models/contact';
 import { Credential } from '../models/credential';
 import { DIDInfo, DIDType } from '../didManager';
 import { ChromeStorage } from '../storage/ChromeStorage';
+import { DIDRegistrarResponse } from '../services/identusCloudService';
 
 export class StorageService {
   private static readonly TEMPLATES_KEY = 'credential_builder_demo_private_templates';
@@ -48,10 +49,17 @@ export class StorageService {
       // Get imported contacts
       const importedContacts = await this.getImportedContacts();
 
-      // Combine both lists and sort by name
-      return [...didContacts, ...importedContacts].sort((a, b) =>
-        a.name.localeCompare(b.name)
+      // Get cloud agent contacts (for Issue tab compatibility)
+      const cloudContacts = await this.getCloudAgentContacts();
+
+      // Combine all lists and remove duplicates (by DID)
+      const allContacts = [...didContacts, ...importedContacts, ...cloudContacts];
+      const uniqueContacts = allContacts.filter((contact, index, self) =>
+        index === self.findIndex(c => c.did === contact.did)
       );
+
+      // Sort by name
+      return uniqueContacts.sort((a, b) => a.name.localeCompare(b.name));
 
     } catch (error) {
       console.error('Error getting all contacts:', error);
@@ -95,6 +103,46 @@ export class StorageService {
       return result[this.IMPORTED_CONTACTS_KEY] || [];
     } catch (error) {
       console.error('Error getting imported contacts:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get DIDs from cloud agent that can be used as contacts
+   */
+  public static async getCloudAgentContacts(): Promise<Contact[]> {
+    try {
+      // This is called from Angular component context, so we need to get the agent
+      const agent = (window as any).agent;
+      if (!agent) return [];
+
+      const cloudService = agent.getCloudService();
+      if (!cloudService) return [];
+
+      // Get all DIDs from cloud agent
+      const cloudResult = await cloudService.getAllDIDs();
+      
+      if (!cloudResult.success || !cloudResult.dids) {
+        return [];
+      }
+
+      // Convert cloud DIDs to contacts (only those not already in local storage)
+      const localDIDs = await this.getAllDIDs();
+      
+      const cloudContacts: Contact[] = cloudResult.dids
+        .filter((cloudDID : DIDRegistrarResponse) => !localDIDs.some(localDID => localDID.id === cloudDID.did))
+        .map((cloudDID : DIDRegistrarResponse) => ({
+          id: cloudDID.did,
+          name: `Cloud-${cloudDID.status}-${cloudDID.did.split(':').pop()?.substring(0, 8) || 'unknown'}`,
+          did: cloudDID.did,
+          didType: DIDType.ISSUER, // Default type
+          isLocal: false,
+          createdAt: new Date().toISOString()
+        }));
+
+      return cloudContacts;
+    } catch (error) {
+      console.error('Error getting cloud agent contacts:', error);
       return [];
     }
   }
@@ -232,6 +280,13 @@ export class StorageService {
         return importedContact;
       }
 
+      // Finally check cloud agent contacts
+      const cloudContacts = await this.getCloudAgentContacts();
+      const cloudContact = cloudContacts.find(c => c.id === contactId);
+      if (cloudContact) {
+        return cloudContact;
+      }
+
       return null;
     } catch (error) {
       console.error('Error getting contact by ID:', error);
@@ -364,5 +419,11 @@ export class StorageService {
     }
 
     await chrome.storage.local.set({ [this.CREDENTIALS_KEY]: credentials });
+  }
+
+  // Add helper method for getting all DID info
+  private static async getAllDIDs(): Promise<DIDInfo[]> {
+    const dids = await ChromeStorage.get('dids') || [];
+    return dids;
   }
 }
